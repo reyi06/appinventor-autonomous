@@ -1,6 +1,6 @@
 /** Minimal MCP (Model Context Protocol) stdio server: newline-delimited JSON-RPC 2.0. */
 
-export function createMcpServer({ name, version, tools, log = () => {} }) {
+export function createMcpServer({ name, version, tools, prompts = null, resources = null, log = () => {} }) {
   const byName = new Map(tools.map((t) => [t.name, t]));
   let initialised = false;
 
@@ -23,7 +23,11 @@ export function createMcpServer({ name, version, tools, log = () => {} }) {
       initialised = true;
       return ok(id, {
         protocolVersion: params?.protocolVersion || '2024-11-05',
-        capabilities: { tools: { listChanged: false } },
+        capabilities: {
+          tools: { listChanged: false },
+          prompts: prompts ? { listChanged: false } : undefined,
+          resources: resources ? { listChanged: false } : undefined
+        },
         serverInfo: { name, version }
       });
     }
@@ -63,8 +67,37 @@ export function createMcpServer({ name, version, tools, log = () => {} }) {
       }
     }
 
-    if (method === 'resources/list') return ok(id, { resources: [] });
-    if (method === 'prompts/list') return ok(id, { prompts: [] });
+    if (method === 'prompts/list') {
+      if (!prompts) return fail(id, -32601, 'Prompts are not supported by this server build');
+      return ok(id, { prompts: prompts.list() });
+    }
+
+    if (method === 'prompts/get') {
+      if (!prompts) return fail(id, -32601, 'Prompts are not supported by this server build');
+      try {
+        const result = await prompts.get(params?.name, params?.arguments || {});
+        return ok(id, result);
+      } catch (err) {
+        return fail(id, -32602, err.message);
+      }
+    }
+
+    if (method === 'resources/list') {
+      if (!resources) return ok(id, { resources: [] });
+      return ok(id, { resources: resources.list() });
+    }
+
+    if (method === 'resources/read') {
+      if (!resources) return fail(id, -32601, 'Resources are not supported by this server build');
+      try {
+        const res = await resources.read(params?.uri);
+        return ok(id, {
+          contents: [{ uri: res.uri, mimeType: res.mimeType, text: res.text }]
+        });
+      } catch (err) {
+        return fail(id, -32602, err.message);
+      }
+    }
 
     if (id !== undefined) return fail(id, -32601, `Method not found: ${method}`);
     return undefined;

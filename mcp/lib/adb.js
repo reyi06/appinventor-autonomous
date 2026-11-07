@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -24,7 +24,26 @@ export function adb(serial, args, opts) {
 }
 
 function sdkRoot() {
-  return process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT || 'C:\\Users\\USERNAME\\toolchains\\android-sdk';
+  if (process.env.ANDROID_HOME) return process.env.ANDROID_HOME;
+  if (process.env.ANDROID_SDK_ROOT) return process.env.ANDROID_SDK_ROOT;
+
+  // Derive from adb on PATH: <sdk>/platform-tools/adb[.exe]
+  const which = process.platform === 'win32' ? 'where' : 'which';
+  try {
+    const out = execFileSync(which, ['adb'], { encoding: 'utf8', windowsHide: true }).split(/\r?\n/)[0].trim();
+    if (out) return path.resolve(path.dirname(out), '..');
+  } catch { /* adb not on PATH */ }
+
+  const candidates = process.platform === 'win32'
+    ? [process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Android', 'Sdk'), 'C:\\Android\\Sdk']
+    : process.platform === 'darwin'
+      ? [path.join(process.env.HOME || '', 'Library', 'Android', 'sdk')]
+      : [path.join(process.env.HOME || '', 'Android', 'Sdk')];
+
+  for (const c of candidates) {
+    if (c && fs.existsSync(path.join(c, 'build-tools'))) return c;
+  }
+  return '';
 }
 
 function aaptPath() {

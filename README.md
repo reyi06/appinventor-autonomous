@@ -19,15 +19,19 @@ Verified end to end on `ai2a.appinventor.mit.edu` (Form `$Version 32`), see
 | Read component tree + every property | works (authoritative `.scm`) |
 | Add / remove / rename components, nest in containers | works, verified after each change |
 | Set designer properties (text, number, bool, choice) | works |
+| Asset upload (PNG/SVG/audio/video/JSON) | works, verified in the exported `.aia` and the APK |
+| Layout IR compiler (JSON spec → screen) | works, with a fidelity report |
 | Read / replace / append / clear Blockly code | works |
 | Block diagnostics (duplicates, unknown refs, unbound variables) | works |
 | Compile APK, download, verify package structure | works (~35–50 s) |
 | Install + launch + scripted UI tests + crash detection | works (emulator) |
 | Static validation + safe auto-repair | works |
 | Add screen | works |
-| Remove screen | works for the screen currently open (the dialog requires typing its name) |
+| Remove screen | only the screen currently open in the Designer |
 | Switch screens | experimental — the selector does not always respond to programmatic clicks |
-| Asset upload, extensions, colour/asset pickers | not implemented |
+| MCP prompts (6 workflows) and resources (10 URIs) | works |
+| Self-test against the live editor | works (`ai_selftest`) |
+| Colour/typeface/alignment pickers | not automatable — reported, never faked |
 
 ## Quick start
 
@@ -63,21 +67,80 @@ Verified end to end on `ai2a.appinventor.mit.edu` (Form `$Version 32`), see
    ai_build_and_test   { device: "emulator-5554", steps: [...] }
    ```
 
-## Layout
+## Layout IR (design sources are optional)
+
+A screen can be described as plain JSON and compiled into components:
+
+```json
+{
+  "name": "Settings",
+  "title": "Settings",
+  "root": {
+    "kind": "container",
+    "layout": { "dir": "vertical", "gap": 12 },
+    "children": [
+      { "kind": "text",   "name": "LblTitle", "text": "Settings",
+        "style": { "font": { "size": 24, "weight": "bold" } } },
+      { "kind": "button", "name": "BtnSave", "text": "Save",
+        "style": { "radius": 8 } },
+      { "kind": "image",  "name": "ImgLogo", "asset": "logo.png",
+        "width": 96, "height": 96 }
+    ]
+  }
+}
+```
+
+- `ai_layout_plan` — dry run: component ops + fidelity report, no writes
+- `ai_layout_apply` — create the screen, add components, set properties
+- `ai_theme_apply` — apply colour/type tokens to an existing screen
+
+The IR deliberately only holds what App Inventor can express. Anything a design source
+provides beyond that is reported as `approximated` or `unsupported`, never silently dropped.
+FigCraft, Penpot or a hand-written spec all translate into this shape; the compiler itself
+knows nothing about them.
+
+## Prompts and resources
+
+The server ships MCP prompts (workflows invoked from the client) and resources (readable
+documents), both from files in this repo:
 
 ```
+docs/prompts/*.md                       single source of truth for workflows
+appinventor://docs/<topic>              architecture, designer, blocks, build-and-test, ...
+appinventor://catalog/components        live component catalog
+appinventor://project/tree              component tree from the saved .scm
+appinventor://project/blocks            Blockly XML of the active screen
+appinventor://state                     live editor state
+```
+
+Prompts: `app_from_brief`, `screen_from_design`, `restyle_screen`, `fix_runtime_crash`,
+`ship_apk`, `audit_app`. The skill at `.opencode/skills/mit-app-inventor` points at the same
+files, so the two cannot drift apart.
+
+
+```
+bin/appinventor-mcp.js  npx entry point (--port, --print-config)
 mcp/
-  server.js            MCP stdio + HTTP relay host + WebSocket hub (port 8766)
-  tools.js             the 38 tools (schemas + handlers)
-  page/relay.js        in-page agent driving GWT + Blockly (served at /relay.js)
-  lib/hub.js           WebSocket hub, request correlation, single-instance forwarding
-  lib/mcp.js           JSON-RPC stdio transport
-  lib/zip.js           ZIP read/write (AIA, APK, AAB)
-  lib/scm.js           .aia / .scm / .bky / project.properties helpers
-  lib/adb.js           device control, UI dumps, scenario runner, logcat triage
-extension/             MV3 bridge that keeps the relay attached
-docs/                  architecture, tool reference, designer, blocks, build/test, troubleshooting
-samples/               TapCounter.aia (+ .apk) and the block XML it was built from
+  server.js             MCP stdio + HTTP relay host + WebSocket hub
+  tools.js              the tools (schemas + handlers)
+  prompts.js            MCP prompts from docs/prompts/*.md
+  resources.js          MCP resources (docs, catalog, project tree, blocks)
+  page/relay.js         in-page agent driving GWT + Blockly (served at /relay.js)
+  layout/
+    ir.js               Layout IR: validation, colours, sizing
+    plan.js             IR -> component/property/spacer ops + fidelity report
+    apply.js            ops -> verified tool calls
+  lib/hub.js            WebSocket hub, request correlation, single-instance forwarding
+  lib/mcp.js            JSON-RPC stdio transport (tools, prompts, resources)
+  lib/zip.js            ZIP read/write (AIA, APK, AAB)
+  lib/scm.js            .aia / .scm / .bky / project.properties helpers
+  lib/adb.js            device control, UI dumps, scenario runner, logcat triage
+extension/              MV3 bridge that keeps the relay attached
+docs/
+  prompts/              one markdown file per MCP prompt (single source)
+  architecture.md designer.md blocks.md build-and-test.md troubleshooting.md mcp-tools.md
+tests/mcp-smoke.mjs     protocol smoke test (no browser needed)
+samples/                TapCounter.aia (+ .apk) and the block XML it was built from
 ```
 
 ## Design notes

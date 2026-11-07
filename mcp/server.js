@@ -7,6 +7,8 @@ import { fileURLToPath } from 'node:url';
 import { createHub } from './lib/hub.js';
 import { createMcpServer } from './lib/mcp.js';
 import { createTools } from './tools.js';
+import { createPrompts } from './prompts.js';
+import { createResources } from './resources.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -173,8 +175,10 @@ async function start() {
   }
 
   const tools = buildTools(hub);
-  createMcpServer({ name: 'appinventor-autonomous', version: '1.0.0', tools, log });
-  log(`MCP server ready with ${tools.length} tools (${bound ? 'bridge' : 'relay-forwarder'} mode)`);
+  const prompts = createPrompts({ rootDir: ROOT });
+  const resources = createResources({ rootDir: ROOT, hub });
+  createMcpServer({ name: 'appinventor-autonomous', version: '1.1.0', tools, prompts, resources, log });
+  log(`MCP server ready with ${tools.length} tools, ${prompts.list().length} prompts, ${resources.list().length} resources (${bound ? 'bridge' : 'relay-forwarder'} mode)`);
 }
 
 process.on('uncaughtException', (err) => log(`uncaught: ${err.stack || err.message}`));

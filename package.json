@@ -5,8 +5,22 @@
   "description": "Autonomous MIT App Inventor control plane: MCP server + in-page relay for Designer, Blockly, AIA export, APK build",
   "type": "module",
   "main": "mcp/server.js",
+  "bin": {
+    "appinventor-mcp": "bin/appinventor-mcp.js"
+  },
+  "files": [
+    "bin/",
+    "mcp/",
+    "extension/",
+    "docs/",
+    "skills/",
+    ".opencode/skills/",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "start": "node mcp/server.js",
+    "selftest": "node tests/mcp-smoke.mjs",
     "test": "node --test tests/"
   },
   "dependencies": {

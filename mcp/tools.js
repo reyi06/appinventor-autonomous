@@ -1215,6 +1215,73 @@ export function createTools(ctx) {
   });
 
   add({
+    name: 'ai_selftest',
+    description: 'Check that this server still works against the live App Inventor build: relay, state, catalog, export, blocks and tree. Run it after an App Inventor update.',
+    inputSchema: { type: 'object', properties: {} },
+    handler: async () => {
+      const checks = [];
+      const run = async (name, fn) => {
+        try {
+          const detail = await fn();
+          checks.push({ name, ok: true, detail });
+        } catch (e) {
+          checks.push({ name, ok: false, detail: e.message });
+        }
+      };
+
+      await run('relay connected', async () => {
+        const clients = hub.status().filter((c) => c.connected);
+        if (!clients.length) throw new Error('no relay attached - run ai_relay_inject');
+        return `${clients.length} tab(s), v${clients[0].hello?.version || '?'}`;
+      });
+
+      await run('editor state', async () => {
+        const s = await call('state');
+        if (!s.projectName) throw new Error('no project open');
+        return `${s.projectName} @ ${s.view}`;
+      });
+
+      await run('component catalog', async () => {
+        const cat = await call('blocks.catalog', {}, 60000);
+        const n = Object.keys(cat).length;
+        if (n < 50) throw new Error(`only ${n} component types returned`);
+        return `${n} types`;
+      });
+
+      await run('project export', async () => {
+        const { files, projectName } = await fetchProject();
+        const screens = listScreens(files);
+        if (!screens.length) throw new Error('exported .aia has no screens');
+        return `${projectName}: ${screens.map((s) => s.screen).join(', ')}`;
+      });
+
+      await run('blocks readable', async () => {
+        const b = await call('blocks.get', { format: 'summary' }, 60000);
+        return `${b.total} blocks`;
+      });
+
+      await run('component tree', async () => {
+        const { files } = await fetchProject();
+        const screens = listScreens(files);
+        const p = [...files.keys()].find((k) => k.endsWith(`/${screens[0].screen}.scm`));
+        const root = componentNode(parseScm(files.get(p).toString('utf8')).Properties);
+        return `${root.name}: ${flattenComponents(root).length} components`;
+      });
+
+      const failed = checks.filter((c) => !c.ok);
+      return {
+        ok: failed.length === 0,
+        passed: checks.length - failed.length,
+        total: checks.length,
+        checks,
+        note: failed.length
+          ? 'A failing check usually means App Inventor changed its DOM or the relay is not attached.'
+          : 'Server is compatible with the connected editor.'
+      };
+    }
+  });
+
+  add({
     name: 'ai_download',
     description: 'Download a URL (for example a build link) to a local file.',
     inputSchema: {
