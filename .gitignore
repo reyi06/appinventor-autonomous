@@ -6,3 +6,5 @@ samples/*.apk
 samples/*.aia
 *.log
 .DS_Store
+checkpoints/
+screenshots/

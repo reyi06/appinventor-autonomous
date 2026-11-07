@@ -18,10 +18,29 @@ export function createTools(ctx) {
 
   const exportDir = path.join(workDir, 'exports');
   const buildDir = path.join(workDir, 'builds');
+  const ROOT_SCREENSHOTS = path.join(workDir, 'screenshots');
 
   async function ensureDirs() {
     await fs.mkdir(exportDir, { recursive: true });
     await fs.mkdir(buildDir, { recursive: true });
+  }
+
+  /**
+   * Snapshot the project before a destructive or hard-to-undo operation, so a
+   * bad edit can always be recovered by re-importing the checkpoint.
+   */
+  async function checkpoint(reason) {
+    try {
+      const { buf, projectName } = await fetchProject();
+      const dir = path.join(workDir, 'checkpoints');
+      await fs.mkdir(dir, { recursive: true });
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const file = path.join(dir, `${projectName}-${reason}-${stamp}.aia`);
+      await fs.writeFile(file, buf);
+      return file;
+    } catch {
+      return null;
+    }
   }
 
   function call(tool, params, timeoutMs) {
@@ -515,7 +534,11 @@ export function createTools(ctx) {
       properties: { name: { type: 'string' } },
       required: ['name']
     },
-    handler: async ({ name }) => call('designer.removeComponent', { name }, 60000)
+    handler: async ({ name }) => {
+      const snap = await checkpoint('remove-component');
+      const r = await call('designer.removeComponent', { name }, 60000);
+      return { ...r, checkpoint: snap };
+    }
   });
 
   add({
@@ -626,7 +649,11 @@ export function createTools(ctx) {
       properties: { xml: { type: 'string' } },
       required: ['xml']
     },
-    handler: async ({ xml }) => call('blocks.set', { xml }, 90000)
+    handler: async ({ xml }) => {
+      const snap = await checkpoint('blocks-set');
+      const r = await call('blocks.set', { xml }, 90000);
+      return { ...r, checkpoint: snap };
+    }
   });
 
   add({
@@ -661,11 +688,34 @@ export function createTools(ctx) {
       type: 'object',
       properties: {
         file: { type: 'string', description: 'Optional absolute destination path' },
-        timeoutSeconds: { type: 'number', description: 'Compile timeout, default 240' }
+        timeoutSeconds: { type: 'number', description: 'Compile timeout, default 240' },
+        skipPreflight: { type: 'boolean', description: 'Build even if the editor reports block errors (default false)' }
       }
     },
-    handler: async ({ file, timeoutSeconds = 240 } = {}) => {
+    handler: async ({ file, timeoutSeconds = 240, skipPreflight = false } = {}) => {
       const start = Date.now();
+
+      // Preflight: a build can succeed while the editor still shows error
+      // badges, so refuse to compile blocks App Inventor already flagged.
+      if (!skipPreflight) {
+        try {
+          const diag = await call('blocks.diagnostics', {}, 30000);
+          const be = diag && diag.blockErrors;
+          if (be && be.available && be.errorCount > 0) {
+            return {
+              __isError: true,
+              data: {
+                ok: false,
+                stage: 'preflight',
+                error: `${be.errorCount} block(s) have errors — fix them or pass skipPreflight: true`,
+                byType: be.byType,
+                blocks: (be.errors || []).slice(0, 20)
+              }
+            };
+          }
+        } catch { /* relay offline: build anyway */ }
+      }
+
       const res = await call('build.apk', {}, Math.min(timeoutSeconds, 900) * 1000);
       if (res.error) {
         return { __isError: true, data: { ok: false, stage: 'compile', error: res.error, elapsedMs: Date.now() - start } };
@@ -734,6 +784,52 @@ export function createTools(ctx) {
       }
       const issues = [];
       const summary = [];
+
+      // The Android launcher is always Screen1; a project whose Screen1 is empty
+      // builds fine and then shows a blank app.
+      const screenFiles = listScreens(files);
+      if (!screenFiles.some((s) => s.screen === 'Screen1')) {
+        issues.push({ severity: 'error', kind: 'missing_launcher_screen', detail: 'Screen1 is the launch activity and is missing' });
+      } else {
+        const launcher = screenFiles.find((s) => s.screen === 'Screen1');
+        const form = readForm(files, launcher.screen);
+        const count = form ? flattenComponents(componentNode(form.doc.Properties)).length : 0;
+        if (count <= 1) {
+          issues.push({
+            severity: 'warning',
+            kind: 'launcher_screen_empty',
+            detail: 'Screen1 has no components; the app will open blank. Build the UI on Screen1.'
+          });
+        }
+      }
+
+      // Legacy theme changes the whole look (old Holo widgets and dialogs).
+      const propsPath = [...files.keys()].find((k) => k.endsWith('project.properties'));
+      if (propsPath) {
+        const props = parseProperties(files.get(propsPath).toString('utf8'));
+        if (!props.theme || props.theme === 'Classic') {
+          issues.push({
+            severity: 'warning',
+            kind: 'legacy_theme',
+            detail: 'theme is Classic (legacy widgets). Set AppTheme.Light.DarkActionBar for Material via ai_project_properties.'
+          });
+        }
+      }
+
+      // App Inventor's own block error pass, when the editor is attached.
+      try {
+        const diag = await call('blocks.diagnostics', {}, 30000);
+        const be = diag && diag.blockErrors;
+        if (be && be.available && be.errorCount > 0) {
+          issues.push({
+            severity: 'error',
+            kind: 'block_errors',
+            detail: `${be.errorCount} block(s) have errors in the editor`,
+            byType: be.byType,
+            blocks: (be.errors || []).slice(0, 20)
+          });
+        }
+      } catch { /* relay offline: skip */ }
 
       for (const s of screens) {
         if (screen && s.screen !== screen) continue;
@@ -1141,9 +1237,27 @@ export function createTools(ctx) {
         );
       }
 
+      const screenApproximations = [];
       const ctx = {
-        addScreen: async (name, title) => {
-          if (!createScreen) return;
+        addScreen: async (name, title, props) => {
+          if (!createScreen) {
+            // Applying onto the open screen still honours screen-level props
+            // (Scrollable, Title, Sizing...) instead of silently dropping them.
+            let target = name;
+            try {
+              const st = await call('state');
+              const form = (st.components || []).find((c) => c.type === 'Form');
+              if (form) target = form.name;
+            } catch { /* fall back to the spec name */ }
+            for (const [prop, value] of Object.entries(props || {})) {
+              try {
+                await call('designer.setProperty', { component: target, property: prop, value }, 60000);
+              } catch (e) {
+                screenApproximations.push({ kind: 'screen-property', component: target, property: prop, reason: e.message });
+              }
+            }
+            return;
+          }
           await call('designer.addScreen', { name }, 90000);
           if (title) {
             try {
@@ -1151,6 +1265,11 @@ export function createTools(ctx) {
             } catch {
               /* title is cosmetic; the screen already exists */
             }
+          }
+          for (const [prop, value] of Object.entries(props || {})) {
+            try {
+              await call('designer.setProperty', { component: name, property: prop, value }, 60000);
+            } catch { /* screen props are best effort */ }
           }
         },
         addComponent: async (type, name, parent) => {
@@ -1162,7 +1281,6 @@ export function createTools(ctx) {
       };
 
       const result = await applyPlan(ops, ctx);
-
       return {
         ok: result.failures.length === 0,
         screen: screen.name,
@@ -1171,7 +1289,7 @@ export function createTools(ctx) {
         notes,
         missingAssets: missing,
         applied: result.applied,
-        approximations: result.approximations,
+        approximations: [...screenApproximations, ...result.approximations],
         failures: result.failures,
         next: [
           'ai_blocks_set to add behaviour',
@@ -1315,6 +1433,8 @@ export function createTools(ctx) {
         // A non-Classic theme requires the action bar; Classic disables it.
         if (set.theme) props.actionbar = set.theme === 'Classic' ? 'False' : 'True';
 
+        const snap = await checkpoint('properties');
+
         await call('project.uploadAsset', {
           name: 'project.properties',
           base64: Buffer.from(serializeProperties(props)).toString('base64'),
@@ -1353,11 +1473,33 @@ export function createTools(ctx) {
         theme: props.theme || '(default)',
         properties: props,
         changes,
+        checkpoint: typeof snap !== 'undefined' ? snap : null,
         reloadRequired: Object.keys(changes).length > 0,
         note: Object.keys(changes).length
           ? 'Project files updated. Reload the App Inventor tab, then rebuild for the change to reach the APK.'
           : 'Read only.'
       };
+    }
+  });
+
+  add({
+    name: 'ai_screenshot',
+    description: 'Capture the device screen to a PNG and return its path, for visual verification of what the app actually renders.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        device: { type: 'string', description: 'adb serial (defaults to the first emulator)' },
+        file: { type: 'string', description: 'Optional absolute destination path' }
+      }
+    },
+    handler: async ({ device, file } = {}) => {
+      const dev = await adb.pickDevice(device);
+      const target = file || path.join(ROOT_SCREENSHOTS, `shot-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.png`);
+      await fs.mkdir(path.dirname(target), { recursive: true });
+      const buf = await adb.screencap(dev.serial);
+      if (!buf || buf.length < 1000) throw new Error('screencap returned no data');
+      await fs.writeFile(target, buf);
+      return { ok: true, device: dev.serial, file: target, bytes: buf.length };
     }
   });
 

@@ -17,7 +17,7 @@ export async function applyPlan(ops, ctx) {
   for (const op of ops) {
     if (op.op === 'screen') {
       try {
-        await addScreen(op.name, op.title);
+        await addScreen(op.name, op.title, op.props);
         applied.screens.push(op.name);
       } catch (e) {
         failures.push({ op: 'screen', name: op.name, error: e.message });

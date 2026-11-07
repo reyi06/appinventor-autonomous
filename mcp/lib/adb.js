@@ -193,8 +193,22 @@ export async function tapText(serial, text, nodes, occurrence = 0) {
 }
 
 /** Read logcat since the last clear and report crashes / runtime errors. */
-export async function readCrashes(serial) {
-  const out = await adb(serial, ['logcat', '-d', '-v', 'brief']);
+/** Capture the device screen as a PNG buffer. */
+export function screencap(serial) {
+  return new Promise((resolve, reject) => {
+    execFile('adb', ['-s', serial, 'exec-out', 'screencap', '-p'], {
+      encoding: 'buffer',
+      maxBuffer: 32 * 1024 * 1024,
+      timeout: 30000,
+      windowsHide: true
+    }, (err, stdout) => {
+      if (err) return reject(err);
+      resolve(stdout);
+    });
+  });
+}
+
+export async function readCrashes(serial) {  const out = await adb(serial, ['logcat', '-d', '-v', 'brief']);
   const lines = out.split(/\r?\n/);
   const fatal = [];
   const errors = [];
