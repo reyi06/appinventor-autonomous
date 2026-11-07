@@ -36,8 +36,10 @@ passes, the server can do useful work on that build.
 - **Colours, typeface and text alignment** cannot be set programmatically; the editor's
   drop-down does not open from scripted clicks. `ai_component { action: "set" }` reports them
   as unsupported rather than pretending.
-- **Screen switching** requires a human click in some builds. `ai_screen { action: "switch" }`
-  fails loudly instead of silently doing nothing.
+- **Screen switching** is driven through the toolbar selector, which is a toggle: the relay
+  sends one click and retries if the menu did not open. It verifies against the live model and
+  reports `previous` / `current`. If it reports a mismatch, re-inject the relay - builds before
+  `2026-11-08.9` fired three click events per press and left the menu closed.
 - **Screens**: the Android launcher is always `Screen1`. A project whose UI lives on another
   screen installs and opens blank — `ai_validate` reports it.
 - **Neo vs Classic**: switching modes reloads the page, which drops the relay. Re-inject.

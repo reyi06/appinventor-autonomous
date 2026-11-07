@@ -129,13 +129,20 @@ the relay does that automatically (relay ≥ 1.1.6).
 
 ## Screen switching does not work
 
-**Symptom** `Screen switch did not take effect`.
+**Symptoms** `timeout after 5000ms` (the menu never appeared), or `Screen switch did not take
+effect (still on "X")`.
 
-**Cause** The `<Screen> ▾` selector in this App Inventor build does not open from
-programmatic (untrusted) clicks.
+**Causes**
 
-**Fix** Open the screen manually in the Designer, then run the component/block tools. This is
-the one place where a human click is still required.
+1. The old relay. The screen selector is a toggle; builds before `2026-11-08.9` fired three
+   click events per press, so it opened and closed in the same instant. Re-inject the relay.
+2. A menu left open by a previous interaction. The relay reuses an open menu instead of
+   toggling it shut, so this is self-healing; reloading the tab also clears it.
+3. A stale screen list: the menu is built from the project's saved screens. If a screen was
+   just added, wait for the add to be verified before switching to it.
+
+**Fix** Re-inject the relay (`ai_status { action: "inject" }`) and retry. Screen switching no
+longer needs a human click.
 
 ## Logs
 

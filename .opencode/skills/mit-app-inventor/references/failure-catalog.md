@@ -187,11 +187,11 @@ version, and calls are addressed to one client so nothing runs twice.
 
 ## `ai_screen_remove` fails
 
-**Cause** Only the screen currently open in the Designer can be removed; this App Inventor
-build does not expose a clickable screen switcher to automation.
+**Cause** Only the screen currently open in the Designer can be removed.
 
-**Fix** Open the screen in the Designer first, then remove it. Or drop it from an exported
-`.aia` and re-import (changes the project id).
+**Fix** `ai_screen { action: "switch", name: "X" }` first - switching works from relay build
+2026-11-08.9 - then remove. If the selector ever fails, drop the screen from an exported `.aia`
+and re-import (changes the project id).
 
 ---
 

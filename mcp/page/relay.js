@@ -15,7 +15,7 @@
   'use strict';
 
   var VERSION = '1.3.3';
-  var BUILD = '2026-11-08.4'; // implementation revision: changing this replaces a live instance
+  var BUILD = '2026-11-08.10'; // implementation revision: changing this replaces a live instance
   var WS_URL = window.__AI_RELAY_WS__ || 'ws://127.0.0.1:8766';
   var PREFIX = '[ai-relay]';
 
@@ -153,6 +153,51 @@
     if (pc) face.dispatchEvent(pc);
     face.dispatchEvent(mouse('click', upBits));
     el.dispatchEvent(mouse('click', upBits));
+  }
+
+  /**
+   * Press and release, with exactly ONE click event.
+   *
+   * `click()` above fires three click events (a pointer click, one on the face
+   * and one on the element) because a button can sit behind wrappers that each
+   * listen. That is harmless for a button that merely acts, but a dropdown
+   * toggles on click, so three clicks open it and immediately close it again.
+   */
+  function clickOnce(el) {
+    if (!el) throw new Error('clickOnce: element missing');
+    var box = el.getBoundingClientRect();
+    var x = box.left + box.width / 2;
+    var y = box.top + box.height / 2;
+    var base = {
+      bubbles: true, cancelable: true, composed: true, view: window,
+      clientX: x, clientY: y, screenX: x, screenY: y,
+      button: 0, buttons: 1, detail: 1
+    };
+    var face = el.querySelector('.html-face') || el;
+    try { el.focus(); } catch (e) { /* not focusable */ }
+
+    var upBits = Object.assign({}, base, { buttons: 0 });
+
+    // GWT's button tracks hover/press state through mouseover/mouseout. Without
+    // them the element is left stuck in the "down-hovering" style and stops
+    // toggling on later clicks.
+    ['pointerover', 'mouseover', 'pointerenter', 'mouseenter'].forEach(function (type) {
+      if (type.indexOf('pointer') === 0 && typeof PointerEvent !== 'function') return;
+      face.dispatchEvent(type.indexOf('pointer') === 0
+        ? new PointerEvent(type, Object.assign({ pointerId: 1, pointerType: 'mouse', isPrimary: true }, base))
+        : new MouseEvent(type, base));
+    });
+
+    face.dispatchEvent(new MouseEvent('mousedown', base));
+    face.dispatchEvent(new MouseEvent('mouseup', upBits));
+    face.dispatchEvent(new MouseEvent('click', upBits));
+
+    ['pointerout', 'mouseout', 'pointerleave', 'mouseleave'].forEach(function (type) {
+      if (type.indexOf('pointer') === 0 && typeof PointerEvent !== 'function') return;
+      face.dispatchEvent(type.indexOf('pointer') === 0
+        ? new PointerEvent(type, Object.assign({ pointerId: 1, pointerType: 'mouse', isPrimary: true }, upBits))
+        : new MouseEvent(type, upBits));
+    });
   }
 
   function dblclick(el) {
@@ -775,6 +820,10 @@
       projectName: projectName(),
       projectId: projectId(),
       view: viewMode(),
+      // Which screen the Designer has open. `components` below belongs to this
+      // screen only, so a reader must not compare it against another screen's
+      // .scm and conclude the project is out of date.
+      screen: currentScreen(),
       selected: selectedComponentName(),
       intercepted: (window.__aiRelayDialogs || []).slice(-10)
     };
@@ -962,39 +1011,96 @@
     });
   };
 
+  /** Name of the screen open in the Designer, read from the live model. */
+  function currentScreen() {
+    var current = null;
+    try {
+      var inst = instances();
+      Object.keys(inst).forEach(function (k) {
+        if (inst[k] && inst[k].typeName === 'Form') current = inst[k].name;
+      });
+    } catch (e) { /* relay attached before the editor finished loading */ }
+    return current;
+  }
+
+  /**
+   * The toolbar screen selector: "<current screen> \u25be". Its class differs
+   * between Classic (.ode-TextButton) and Neo (.ode-ProjectListButton), so it is
+   * found by its caret, then filtered to exclude the other carets on screen
+   * (Projects/Connect/Build/Settings/Help/language/account and the
+   * components-tree filter, which also says "All Components \u25be").
+   */
+  function findScreenSelector() {
+    var candidates = document.querySelectorAll('.ode-TextButton, .ode-ProjectListButton, button, .ode-TopPanelButton');
+    for (var i = 0; i < candidates.length; i++) {
+      var txt = (candidates[i].textContent || '').trim();
+      if (txt.indexOf('\u25be') === -1) continue;
+      if (/^(Projects|Connect|Build|Settings|Help|English)\b/i.test(txt)) continue;
+      if (txt.indexOf('@') !== -1) continue;
+      if (/components-tree-filter/.test(String(candidates[i].className || ''))) continue;
+      return candidates[i];
+    }
+    return null;
+  }
+
+  /**
+   * Open the screen menu.
+   *
+   * The selector is a toggle, and App Inventor can be left believing the menu is
+   * still showing after a previous switch, in which case the next click closes
+   * it instead of opening it. So: reuse a menu that is already open, otherwise
+   * click until one with items is actually in the DOM.
+   */
+  function openScreenMenu(trigger) {
+    function openMenu() {
+      var menu = document.querySelector('.ode-ContextMenu');
+      if (!menu) return null;
+      return menu.querySelectorAll('.ode-ContextMenuItem').length ? menu : null;
+    }
+    if (openMenu()) return Promise.resolve(openMenu());
+    var attempts = 0;
+    function attempt() {
+      attempts++;
+      clickOnce(trigger);
+      return sleep(300).then(function () {
+        var menu = openMenu();
+        if (menu) return menu;
+        if (attempts >= 4) throw new Error('Screen selector did not open after ' + attempts + ' clicks');
+        return attempt();
+      });
+    }
+    return attempt();
+  }
+
   H['designer.switchScreen'] = function (p) {
     var name = p && p.name;
     if (!name) throw new Error('name required');
     return ensureDesigner().then(function () {
-      var trigger = null;
-      var buttons = document.querySelectorAll('div.ode-TextButton');
-      for (var i = 0; i < buttons.length; i++) {
-        var txt = buttons[i].textContent.trim();
-        if (txt.indexOf('\u25be') !== -1) { trigger = buttons[i]; break; } // "Screen1 ▾"
+      var before = currentScreen();
+      if (before === name) {
+        return { requested: name, previous: before, current: before, switched: false };
       }
-      if (!trigger) throw new Error('Screen selector not found (is a project open with more than one screen?)');
-      click(trigger);
-      return waitFor(function () {
-        return document.querySelector('.ode-ContextMenu, .gwt-PopupPanel');
-      }, 5000);
-    }).then(function () {
-      var entry = byText('.ode-ContextMenuItem', name) || byText('td', name) || byText('.gwt-HTML', name);
-      if (!entry) throw new Error('Screen not found in the selector menu: ' + name);
-      click(entry.closest('.ode-ContextMenuItem') || entry);
-      return sleep(2500).then(function () {
-        var current = null;
-        try {
-          var inst = instances();
-          Object.keys(inst).forEach(function (k) {
-            if (inst[k] && inst[k].typeName === 'Form') current = inst[k].name;
-          });
-        } catch (e) { /* ignore */ }
-        if (current !== name) {
-          throw new Error('Screen switch did not take effect (still on "' + current + '"). ' +
-            'The screen selector in this App Inventor build does not respond to programmatic clicks; ' +
-            'open the screen manually, then run screen/component commands.');
+
+      var trigger = findScreenSelector();
+      if (!trigger) throw new Error('Screen selector not found (is a project open?)');
+
+      return openScreenMenu(trigger).then(function () {
+        var entry = byText('.ode-ContextMenuItem', name)
+          || byText('.gwt-MenuItem', name)
+          || byText('td', name)
+          || byText('.gwt-HTML', name);
+        if (!entry) {
+          closePopups();
+          throw new Error('Screen not found in the selector menu: ' + name);
         }
-        return { requested: name, current: current, switched: true };
+        clickOnce(entry.closest('.ode-ContextMenuItem') || entry);
+        return sleep(2500);
+      }).then(function () {
+        var current = currentScreen();
+        if (current !== name) {
+          throw new Error('Screen switch did not take effect (still on "' + current + '")');
+        }
+        return { requested: name, previous: before, current: current, switched: true };
       });
     });
   };

@@ -382,7 +382,7 @@ export function createTools(ctx) {
 
   add({
     name: 'ai_screen_add',
-    description: 'Add a new screen to the project using the Designer "Add Screen" dialog.',
+    description: 'Add a new screen to the project using the Designer "Add Screen" dialog. The new screen becomes the open one, so components added next land on it.',
     inputSchema: {
       type: 'object',
       properties: { name: { type: 'string' } },
@@ -409,7 +409,7 @@ export function createTools(ctx) {
 
   add({
     name: 'ai_screen_switch',
-    description: 'Open a different screen in the Designer. Experimental: the screen selector may not respond to programmatic clicks in some App Inventor builds; fails loudly if the screen did not change.',
+    description: 'Open a different screen in the Designer. Switches via the toolbar selector, then verifies against the live model and returns previous/current; throws if the screen did not change.',
     inputSchema: {
       type: 'object',
       properties: { name: { type: 'string' } },
@@ -455,7 +455,7 @@ export function createTools(ctx) {
 
   add({
     name: 'ai_screen_remove',
-    description: 'Remove the screen currently open in the Designer (Designer UI path). Some App Inventor builds do not respond to programmatic clicks here; use ai_project_remove_screen when this fails.',
+    description: 'Remove the screen currently open in the Designer (Designer UI path). Switch to it first with ai_screen { action: "switch" }. Falls back to ai_project { action: "removeScreen" } if the UI path fails.',
     inputSchema: {
       type: 'object',
       properties: { name: { type: 'string' } },
@@ -495,8 +495,12 @@ export function createTools(ctx) {
         /* relay optional for this read */
       }
       const tree = includeProperties ? root : stripProps(root);
-      const liveNames = live && live.components ? live.components.map((c) => c.name).sort() : null;
       const scmNames = flattenComponents(root).map((c) => c.name).sort();
+      // The live list belongs to whichever screen the Designer has open, so it
+      // is only comparable when that is the screen being read.
+      const liveHere = !!(live && live.components && (!live.screen || live.screen === screen));
+      const liveNames = liveHere ? live.components.map((c) => c.name).sort() : null;
+      const stale = liveNames ? JSON.stringify(liveNames) !== JSON.stringify(scmNames) : null;
       return {
         ok: true,
         projectName,
@@ -504,10 +508,13 @@ export function createTools(ctx) {
         tree,
         componentCount: scmNames.length,
         liveNames,
-        stale: liveNames ? JSON.stringify(liveNames) !== JSON.stringify(scmNames) : null,
-        note: liveNames && JSON.stringify(liveNames) !== JSON.stringify(scmNames)
-          ? 'Saved .scm differs from the live designer (autosave runs ~6s after an edit). Re-run shortly or call ai_state for live components.'
-          : undefined
+        openScreen: live && live.screen ? live.screen : null,
+        stale,
+        note: liveNames && stale
+          ? 'Saved .scm differs from the live designer (autosave runs ~6s after an edit). Re-run shortly or call ai_status { action: "state" } for live components.'
+          : live && !liveHere
+            ? `Live component list not compared: "${live.screen}" is open in the Designer, not "${screen}".`
+            : undefined
       };
     }
   });

@@ -108,9 +108,13 @@ nested in `children`.
 - `ai_screen_add` creates a screen and verifies it by re-exporting the project.
 - `ai_screen_remove` types the screen name into the confirmation box and clicks Delete. The
   screen must be the one currently open in the Designer.
-- `ai_screen_switch` is experimental: the `<Screen> ▾` selector in this App Inventor build
-  does not reliably open from programmatic clicks, so the tool fails loudly instead of
-  pretending the screen changed.
+- `ai_screen_switch` opens the toolbar selector and picks the screen by name, then verifies
+  against the live model and returns `previous` / `current`. Two details make it work: the
+  selector is a **toggle** (it needs exactly one click event, or it opens and closes), and it
+  is found by its `▾` caret rather than by CSS class, because Classic uses `.ode-TextButton`
+  and Neo uses `.ode-ProjectListButton`.
+- Only the screen open in the Designer can be edited, so `switch` is the first step of any
+  multi-screen build: switch, then add components and blocks.
 
 ## Blocking dialogs
 

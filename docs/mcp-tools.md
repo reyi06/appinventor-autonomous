@@ -39,9 +39,10 @@ did not happen. Results that contain text from the project or the device are mar
 ## `ai_screen`
 `action: list | add | switch | remove` + `name`
 
-`list` reads the exported `.aia` (authoritative). `remove` only works for the screen open in
-the Designer. `switch` is experimental — the screen selector ignores programmatic clicks in
-some builds, and the tool fails loudly rather than pretending.
+`list` reads the exported `.aia` (authoritative). `add` creates a screen and switches to it.
+`switch` opens the toolbar selector, picks the screen by name, and verifies against the live
+model - it returns `previous` and `current`, or throws if the screen did not change. `remove`
+only works for the screen open in the Designer, and says which screen to switch to first.
 
 ## `ai_component`
 `action: tree | add | remove | rename | select | get | set | types | schema`

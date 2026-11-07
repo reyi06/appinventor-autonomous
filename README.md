@@ -28,7 +28,7 @@ Neo UI modes, with the sample in [samples/pizza](samples/pizza):
 | Static validation + safe auto-repair | works |
 | Add screen | works |
 | Remove screen | only the screen currently open in the Designer |
-| Switch screens | experimental — the selector does not always respond to programmatic clicks |
+| Switch screens | works - verified against the live model, returns `previous`/`current` |
 | MCP prompts (6 workflows) and resources (10 URIs) | works |
 | Self-test against the live editor | works (`ai_selftest`) |
 | Colour/typeface/alignment pickers | not automatable — reported, never faked |
