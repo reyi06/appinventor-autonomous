@@ -42,8 +42,16 @@ export async function applyPlan(ops, ctx) {
         const name = op.name || `Spacer_${applied.spacers + 1}`;
         await addComponent('Label', name, op.parent);
         await setProperty(name, 'Text', '');
-        if (op.dir === 'horizontal') await setProperty(name, 'Width', String(op.size));
-        else await setProperty(name, 'Height', String(op.size));
+        if (op.fill) {
+          // A Fill parent spacer absorbs the leftover space: App Inventor has no
+          // space-between, so this is how distribution is expressed.
+          if (op.dir === 'horizontal') await setProperty(name, 'Width', 'Fill parent');
+          else await setProperty(name, 'Height', 'Fill parent');
+        } else if (op.dir === 'horizontal') {
+          await setProperty(name, 'Width', String(op.size));
+        } else {
+          await setProperty(name, 'Height', String(op.size));
+        }
         spacerNames.push(name);
         applied.spacers++;
       } catch (e) {

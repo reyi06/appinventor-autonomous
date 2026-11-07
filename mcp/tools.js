@@ -1145,7 +1145,13 @@ export function createTools(ctx) {
         addScreen: async (name, title) => {
           if (!createScreen) return;
           await call('designer.addScreen', { name }, 90000);
-          if (title) await call('designer.setProperty', { component: name, property: 'Title', value: title }, 60000);
+          if (title) {
+            try {
+              await call('designer.setProperty', { component: name, property: 'Title', value: title }, 60000);
+            } catch {
+              /* title is cosmetic; the screen already exists */
+            }
+          }
         },
         addComponent: async (type, name, parent) => {
           await call('designer.addComponent', { type, name, parent }, 120000);

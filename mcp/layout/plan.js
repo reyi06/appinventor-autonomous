@@ -26,7 +26,7 @@ export function planScreen(screen) {
   const ops = [{ op: 'screen', name: screen.name, title: screen.title, props: screen.props }];
   const spacerCount = {};
 
-  function spacer(parentName, dir, size) {
+  function spacer(parentName, dir, size, fill) {
     const key = parentName || '__screen__';
     spacerCount[key] = (spacerCount[key] || 0) + 1;
     ops.push({
@@ -35,8 +35,14 @@ export function planScreen(screen) {
       name: `Spacer_${spacerCount[key]}`,
       dir,
       size,
-      reason: 'arrangement gap'
+      fill: !!fill,
+      reason: fill ? 'space-between distribution' : 'arrangement gap'
     });
+  }
+
+  function isSpaceBetween(layout) {
+    const v = String((layout && layout.mainAlign) || '').toLowerCase().replace(/_/g, '-');
+    return v === 'space-between' || v === 'spacebetween';
   }
 
   function emit(node, parentName) {
@@ -64,28 +70,37 @@ export function planScreen(screen) {
 
     const dir = node.layout && node.layout.dir === 'horizontal' ? 'horizontal' : 'vertical';
     const gap = node.layout && node.layout.gap > 0 ? node.layout.gap : 0;
+    const spread = isSpaceBetween(node.layout);
 
     node.children.forEach((child, index) => {
-      if (index > 0 && gap) spacer(node.name, dir, gap);
+      if (index > 0) {
+        if (spread) spacer(node.name, dir, 0, true);
+        else if (gap) spacer(node.name, dir, gap, false);
+      }
       emit(child, node.name);
     });
 
     report.mapped++;
   }
 
-  // Root = the screen. Its style becomes the Screen's own properties.
-  const rootStyle = screen.root.props || {};
-  for (const [property, value] of Object.entries(rootStyle)) {
-    if (property === 'BackgroundColor') {
+  // Root = the screen. Its style and alignment become the Screen's own properties.
+  const rootProps = screen.root.props || {};
+  const SCREEN_PROPS = ['BackgroundColor', 'AlignHorizontal', 'AlignVertical', 'Scrollable', 'Sizing'];
+  for (const [property, value] of Object.entries(rootProps)) {
+    if (SCREEN_PROPS.includes(property)) {
       ops.push({ op: 'property', component: screen.name, property, value, node: screen.name });
     }
   }
 
   const rootDir = screen.root.layout && screen.root.layout.dir === 'horizontal' ? 'horizontal' : 'vertical';
   const rootGap = screen.root.layout && screen.root.layout.gap > 0 ? screen.root.layout.gap : 0;
+  const rootSpread = isSpaceBetween(screen.root.layout);
 
   screen.root.children.forEach((child, index) => {
-    if (index > 0 && rootGap) spacer(null, rootDir, rootGap);
+    if (index > 0) {
+      if (rootSpread) spacer(null, rootDir, 0, true);
+      else if (rootGap) spacer(null, rootDir, rootGap, false);
+    }
     emit(child, null);
   });
 

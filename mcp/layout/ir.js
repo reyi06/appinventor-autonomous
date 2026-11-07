@@ -8,9 +8,17 @@
 
 export const IR_VERSION = 1;
 
-const KINDS = new Set(['container', 'text', 'button', 'image', 'input', 'spacer', 'canvas']);
+const KINDS = new Set(['container', 'grid', 'text', 'button', 'image', 'input', 'spacer', 'canvas']);
 const DIRECTIONS = new Set(['vertical', 'horizontal', 'absolute']);
-const ALIGN = new Set(['start', 'center', 'end', 'stretch']);
+const ALIGN = new Set(['start', 'center', 'end', 'stretch', 'space-between', 'spacebetween', 'spacebetween']);
+
+/**
+ * Alignment codes.
+ * AlignHorizontal: 1 left, 2 center, 3 right
+ * AlignVertical:   1 top,  2 center, 3 bottom
+ * Which one is the "main" axis depends on the container's direction.
+ */
+const AXIS_CODE = { start: '1', left: '1', top: '1', center: '2', end: '3', right: '3', bottom: '3' };
 
 /** App Inventor TextAlignment codes. */
 const TEXT_ALIGN = { left: '0', start: '0', center: '1', right: '2', end: '2' };
@@ -18,6 +26,7 @@ const TEXT_ALIGN = { left: '0', start: '0', center: '1', right: '2', end: '2' };
 /** Default component for each IR kind. */
 export const DEFAULT_TYPE = {
   container: null, // depends on layout.dir
+  grid: 'TableArrangement',
   text: 'Label',
   button: 'Button',
   image: 'Image',
@@ -102,7 +111,7 @@ export function normalizeScreen(spec, options = {}) {
   const counters = {};
   const used = new Set();
 
-  function walk(nodeSpec, path, depth) {
+  function walk(nodeSpec, path, depth, parent) {
     if (!isPlainObject(nodeSpec)) throw new IrError('node must be an object', path);
 
     const kind = nodeSpec.kind || inferKind(nodeSpec);
@@ -133,6 +142,17 @@ export function normalizeScreen(spec, options = {}) {
 
     const props = buildProps(kind, type, nodeSpec, style, font, layout, notes, path);
 
+    // `stretch` is not an alignment value in App Inventor: it means every child
+    // fills the parent's cross axis.
+    if (parent && parent.layout && parent.layout.crossAlign === 'stretch') {
+      const verticalParent = parent.layout.dir !== 'horizontal';
+      const explicitCross = verticalParent ? nodeSpec.width : nodeSpec.height;
+      if (!explicitCross && !props.Width && !props.Height) {
+        if (verticalParent) props.Width = 'Fill parent';
+        else props.Height = 'Fill parent';
+      }
+    }
+
     const node = {
       id: nodeSpec.id || null,
       kind,
@@ -150,7 +170,7 @@ export function normalizeScreen(spec, options = {}) {
     if (node.text && type === 'Button' && !node.props.Text) node.props.Text = node.text;
 
     const kids = Array.isArray(nodeSpec.children) ? nodeSpec.children : [];
-    node.children = kids.map((c, i) => walk(c, `${path}.children[${i}]`, depth + 1));
+    node.children = kids.map((c, i) => walk(c, `${path}.children[${i}]`, depth + 1, node));
 
     // gaps between auto-layout children become spacer components
     if (layout.gap > 0 && node.children.length > 1 && (layout.dir === 'vertical' || layout.dir === 'horizontal')) {
@@ -164,7 +184,7 @@ export function normalizeScreen(spec, options = {}) {
     return node;
   }
 
-  const root = walk(rootSpec, 'root', 0);
+  const root = walk(rootSpec, 'root', 0, null);
 
   return {
     screen: {
@@ -193,6 +213,7 @@ function chooseType(kind, layout, explicit) {
     if (layout.dir === 'absolute') return 'Canvas';
     return 'VerticalArrangement';
   }
+  if (kind === 'grid') return 'TableArrangement';
   return DEFAULT_TYPE[kind];
 }
 
@@ -239,11 +260,27 @@ function buildProps(kind, type, spec, style, font, layout, notes, path) {
     props.Height = height || 'Automatic';
   }
 
-  if (kind === 'container') {
-    if (layout.mainAlign) props.AlignHorizontal = alignCode(layout.mainAlign, layout.dir);
-    if (layout.crossAlign) props.AlignVertical = alignCode(layout.crossAlign, layout.dir);
-    if (layout.dir && /Arrangement$/.test(type)) {
-      if (layout.dir === 'vertical') props.AlignHorizontal = props.AlignHorizontal || '3';
+  if (kind === 'container' || kind === 'grid') {
+    // main/cross axis depends on the container's direction:
+    //   vertical  -> AlignVertical is main, AlignHorizontal is cross
+    //   horizontal-> AlignHorizontal is main, AlignVertical is cross
+    const vertical = layout.dir !== 'horizontal';
+    const main = AXIS_CODE[String(layout.mainAlign || '').toLowerCase()];
+    const cross = AXIS_CODE[String(layout.crossAlign || '').toLowerCase()];
+
+    if (vertical) {
+      if (main) props.AlignVertical = main;
+      if (cross) props.AlignHorizontal = cross;
+    } else {
+      if (main) props.AlignHorizontal = main;
+      if (cross) props.AlignVertical = cross;
+    }
+
+    if (kind === 'grid') {
+      const cols = Number(layout.columns || spec.columns || 2);
+      const rows = Number(layout.rows || spec.rows || 2);
+      props.Columns = String(Math.max(1, cols));
+      props.Rows = String(Math.max(1, rows));
     }
   }
 
@@ -269,12 +306,6 @@ function normalizeSize(v) {
   if (/^\d+(\.\d+)?%$/.test(s)) return String(-1000 - Math.round(parseFloat(s)));
   if (/^\d+(\.\d+)?(px|dp)?$/.test(s)) return String(Math.round(parseFloat(s)));
   return null;
-}
-
-function alignCode(value, dir) {
-  // 1 = start/left, 2 = center, 3 = end/right for AlignHorizontal
-  const map = { start: '1', left: '1', center: '2', end: '3', right: '3', stretch: '3' };
-  return map[value] || '1';
 }
 
 /** Flatten an IR tree to a list with parents, for planning and reporting. */
