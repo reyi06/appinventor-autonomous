@@ -14,7 +14,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '1.3.1';
+  var VERSION = '1.3.2';
   var WS_URL = window.__AI_RELAY_WS__ || 'ws://127.0.0.1:8766';
   var PREFIX = '[ai-relay]';
 
@@ -461,8 +461,46 @@
     return dups;
   }
 
-  function unknownComponentRefs() {
-    var known = {};
+  /**
+   * App Inventor's own block error/warning pass. The workspace keeps the
+   * results in its warning handler; reading them turns a silent red triangle in
+   * the editor into a machine-readable diagnostic.
+   */
+  function workspaceErrors() {
+    var ws = workflow();
+    var handler = null;
+    try { handler = ws.getWarningHandler ? ws.getWarningHandler() : null; } catch (e) { handler = null; }
+    if (!handler) return { available: false };
+
+    function collect(hash) {
+      var out = [];
+      var ids = Object.keys(hash || {});
+      for (var i = 0; i < ids.length; i++) {
+        var block = ws.getBlockById(ids[i]);
+        out.push({
+          id: ids[i],
+          type: block ? block.type : null,
+          fields: block && block.getFieldValue && block.getFieldValue('PROCNAME') ? { PROCNAME: block.getFieldValue('PROCNAME') } : null
+        });
+      }
+      return out;
+    }
+
+    var errors = collect(handler.errorIdHash);
+    var warnings = collect(handler.warningIdHash);
+    return {
+      available: true,
+      errorCount: handler.errorCount != null ? handler.errorCount : errors.length,
+      errors: errors,
+      warnings: warnings,
+      byType: errors.reduce(function (acc, e) {
+        acc[e.type] = (acc[e.type] || 0) + 1;
+        return acc;
+      }, {})
+    };
+  }
+
+  function unknownComponentRefs() {    var known = {};
     instanceList().forEach(function (i) { known[i.name] = i.type; });
     var ws = workflow();
     var dom = Blockly.Xml.workspaceToDom(ws);
@@ -1158,6 +1196,7 @@
     try { out.duplicateHandlers = duplicateHandlers(); } catch (e) { out.dupError = e.message; }
     try { out.unknownComponentRefs = unknownComponentRefs(); } catch (e) { out.refError = e.message; }
     try { out.components = instanceList(); } catch (e) { out.compError = e.message; }
+    try { out.blockErrors = workspaceErrors(); } catch (e) { out.errorScanError = e.message; }
     return out;
   };
 

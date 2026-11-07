@@ -192,3 +192,52 @@ build does not expose a clickable screen switcher to automation.
 
 **Fix** Open the screen in the Designer first, then remove it. Or drop it from an exported
 `.aia` and re-import (changes the project id).
+
+---
+
+## Every procedure call shows an error marker
+
+**Symptom** Dozens of red error markers, all on `procedures_callnoreturn` blocks;
+`ai_blocks_diagnostics` → `blockErrors.byType` = `{"procedures_callnoreturn": N}`.
+
+**Cause** The call is missing its `PROCNAME` field, or the definition used `PROCNAME`
+instead of `NAME`.
+
+```xml
+<!-- definition: NAME field, no mutation -->
+<block type="procedures_defnoreturn"><field name="NAME">recalcBase</field>…</block>
+
+<!-- call: mutation AND PROCNAME field -->
+<block type="procedures_callnoreturn">
+  <mutation name="recalcBase"></mutation>
+  <field name="PROCNAME">recalcBase</field>
+</block>
+```
+
+**Check** `ai_blocks_diagnostics` returns `blockErrors.errorCount` read straight from App
+Inventor's own warning handler, so this is caught without opening the Blocks editor.
+
+---
+
+## Notifier does nothing
+
+**Symptom** A button that calls `Notifier.ShowAlert` shows nothing useful (a 3-second toast),
+and a confirmation built on `ShowMessageDialog` never runs.
+
+**Cause** `ShowAlert` is a **Toast**; `ShowMessageDialog(message, title, buttonText)` takes
+three arguments and raises **no** event; only `ShowChooseDialog(message, title, b1, b2,
+cancelable)` raises `AfterChoosing`.
+
+**Fix** Use `ShowChooseDialog` for confirmations. `AfterChoosing(choice)` passes the button
+**text** (`"Yes"`), not an index — compare it with a text block and route on a
+`pendingAction` global.
+
+---
+
+## Arithmetic block evaluates as zero / inputs missing
+
+**Cause** `math_add` and `math_multiply` use `NUM0`/`NUM1`, while `math_subtract` and
+`math_division` use `A`/`B`. A socket with the wrong name is dropped silently.
+
+**Fix** Match the input names per block type (see `docs/blocks.md`).
+

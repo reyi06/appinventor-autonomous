@@ -80,18 +80,28 @@ function ifBlock(branches, elseStack) {
   return block('controls_if', { mutation, values, statements });
 }
 
+// App Inventor: a definition names itself with a NAME field (no mutation);
+// every call carries both a mutation and a PROCNAME field.
 const procDef = (name, body) => block('procedures_defnoreturn', {
-  mutation: '<mutation></mutation>',
-  fields: { PROCNAME: name },
+  fields: { NAME: name },
   statements: { STACK: body }
 });
-const procCall = (name) => block('procedures_callnoreturn', { mutation: `<mutation name="${name}"></mutation>` });
+const procCall = (name) => block('procedures_callnoreturn', {
+  mutation: `<mutation name="${name}"></mutation>`,
+  fields: { PROCNAME: name }
+});
 
-const alert = (message) => callMethod('Notifier1', 'Notifier', 'ShowAlert', [txt(message)]);
-const confirm = (action, message, title) => seq(
+// App Inventor's Notifier: ShowAlert is a transient toast, ShowMessageDialog is a
+// one-button dialog with no event, and only ShowChooseDialog raises AfterChoosing
+// (with the button TEXT, not an index).
+const showDialog = (message, title, button = 'OK') =>
+  callMethod('Notifier1', 'Notifier', 'ShowMessageDialog', [txt(message), txt(title), txt(button)]);
+const askConfirm = (action, message, title) => seq(
   setVar('pendingAction', txt(action)),
-  callMethod('Notifier1', 'Notifier', 'ShowMessageDialog', [txt(message), txt(title), txt('Yes'), txt('Cancel')])
+  callMethod('Notifier1', 'Notifier', 'ShowChooseDialog', [txt(message), txt(title), txt('Yes'), txt('Cancel'), bool(true)])
 );
+const done = (message) => showDialog(message, 'Done');
+const check = (message) => showDialog(message, 'Check input');
 
 /* ---------------------------------------------------------------- globals */
 
@@ -224,10 +234,10 @@ const discHandlers = [0, 5, 10, 20].map((pct) => {
 const totalHandler = event('BtnTotal', 'Button', 'Click', ifBlock([
   {
     cond: and(eq(getVar('basePrice'), num(0)), eq(getVar('topPrice'), num(0))),
-    stack: alert('Select a pizza and at least one extra.')
+    stack: check('Select a pizza and at least one extra.')
   },
-  { cond: eq(getVar('basePrice'), num(0)), stack: alert('Select a pizza first.') },
-  { cond: eq(getVar('topPrice'), num(0)), stack: alert('Select at least one extra.') }
+  { cond: eq(getVar('basePrice'), num(0)), stack: check('Select a pizza first.') },
+  { cond: eq(getVar('topPrice'), num(0)), stack: check('Select at least one extra.') }
 ], seq(
   setVar('total', add(getVar('basePrice'), getVar('topPrice'))),
   setProp('LbTotal', 'Label', 'Text', getVar('total')),
@@ -237,8 +247,8 @@ const totalHandler = event('BtnTotal', 'Button', 'Click', ifBlock([
 )));
 
 const discountHandler = event('BtnDiscAmt', 'Button', 'Click', ifBlock([
-  { cond: eq(getVar('total'), num(0)), stack: alert('Press TOTAL first.') },
-  { cond: not(anyDiscount), stack: alert('Please select a discount.') }
+  { cond: eq(getVar('total'), num(0)), stack: check('Press TOTAL first.') },
+  { cond: not(anyDiscount), stack: check('Please select a discount.') }
 ], seq(
   setVar('discountAmt', div(mul(getVar('total'), getVar('discountPct')), num(100))),
   setProp('LbDiscAmt', 'Label', 'Text', getVar('discountAmt')),
@@ -246,42 +256,42 @@ const discountHandler = event('BtnDiscAmt', 'Button', 'Click', ifBlock([
 )));
 
 const clearBaseHandler = event('BtnClearBase', 'Button', 'Click', ifBlock([
-  { cond: eq(getVar('basePrice'), num(0)), stack: alert('Nothing to clear.') }
-], confirm('base', 'Clear the selected pizza?', 'Clear pizza')));
+  { cond: eq(getVar('basePrice'), num(0)), stack: check('Nothing to clear.') }
+], askConfirm('base', 'Clear the selected pizza?', 'Clear pizza')));
 
 const clearTopHandler = event('BtnClearTop', 'Button', 'Click', ifBlock([
-  { cond: eq(getVar('topPrice'), num(0)), stack: alert('Nothing to clear.') }
-], confirm('tops', 'Clear the extras?', 'Clear extras')));
+  { cond: eq(getVar('topPrice'), num(0)), stack: check('Nothing to clear.') }
+], askConfirm('tops', 'Clear the extras?', 'Clear extras')));
 
 const clearOrderHandler = event('BtnClearOrder', 'Button', 'Click', ifBlock([
   {
     cond: and(eq(getVar('basePrice'), num(0)), eq(getVar('topPrice'), num(0))),
-    stack: alert('The order is already empty.')
+    stack: check('The order is already empty.')
   }
-], confirm('order', 'Clear the whole order?', 'Clear order')));
+], askConfirm('order', 'Clear the whole order?', 'Clear order')));
 
 const resetDiscHandler = event('BtnResetDisc', 'Button', 'Click', ifBlock([
-  { cond: not(anyDiscount), stack: alert('No discount selected.') }
-], confirm('discount', 'Reset the discount?', 'Reset discount')));
+  { cond: not(anyDiscount), stack: check('No discount selected.') }
+], askConfirm('discount', 'Reset the discount?', 'Reset discount')));
 
 const clearDataHandler = event('BtnClearData', 'Button', 'Click', ifBlock([
   {
     cond: and(eq(getVar('basePrice'), num(0)), eq(getVar('topPrice'), num(0)), not(anyDiscount)),
-    stack: alert('Nothing to clear.')
+    stack: check('Nothing to clear.')
   }
-], confirm('all', 'Reset everything?', 'Clear data')));
+], askConfirm('all', 'Reset everything?', 'Clear data')));
 
 const afterChoosing = event('Notifier1', 'Notifier', 'AfterChoosing', seq(
   ifBlock([{
-    cond: eq(getLocal('choice'), num(1)),
+    cond: eq(getLocal('choice'), txt('Yes')),
     stack: ifBlock([
-      { cond: eq(getVar('pendingAction'), txt('base')), stack: seq(procCall('clearBase'), alert('Pizza cleared.')) },
-      { cond: eq(getVar('pendingAction'), txt('tops')), stack: seq(procCall('clearTops'), alert('Extras cleared.')) },
-      { cond: eq(getVar('pendingAction'), txt('order')), stack: seq(procCall('clearOrder'), alert('Order cleared.')) },
-      { cond: eq(getVar('pendingAction'), txt('discount')), stack: seq(procCall('resetDiscount'), alert('Discount reset.')) },
-      { cond: eq(getVar('pendingAction'), txt('all')), stack: seq(procCall('clearAll'), alert('All data cleared.')) }
+      { cond: eq(getVar('pendingAction'), txt('base')), stack: seq(procCall('clearBase'), done('Pizza cleared.')) },
+      { cond: eq(getVar('pendingAction'), txt('tops')), stack: seq(procCall('clearTops'), done('Extras cleared.')) },
+      { cond: eq(getVar('pendingAction'), txt('order')), stack: seq(procCall('clearOrder'), done('Order cleared.')) },
+      { cond: eq(getVar('pendingAction'), txt('discount')), stack: seq(procCall('resetDiscount'), done('Discount reset.')) },
+      { cond: eq(getVar('pendingAction'), txt('all')), stack: seq(procCall('clearAll'), done('All data cleared.')) }
     ])
-  }], alert('Cancelled')),
+  }], check('Cancelled')),
   setVar('pendingAction', txt(''))
 ));
 

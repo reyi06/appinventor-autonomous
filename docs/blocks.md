@@ -91,11 +91,15 @@ App Inventor ships one block per operator:
 | Operation | Block | Inputs |
 | --- | --- | --- |
 | add | `math_add` | `NUM0`, `NUM1` (mutator-driven, 2 by default) |
-| subtract | `math_subtract` | `NUM0`, `NUM1` |
+| subtract | `math_subtract` | **`A`, `B`** |
 | multiply | `math_multiply` | `NUM0`, `NUM1` |
-| divide | `math_division` | `NUM0`, `NUM1` |
+| divide | `math_division` | **`A`, `B`** |
 | compare | `math_compare` | `NUM0`, `NUM1`, field `OP` |
 | random integer | `math_random_int` | `FROM`, `TO` |
+
+The inconsistent input names are real: add and multiply use `NUM0`/`NUM1`, subtract and
+divide use `A`/`B`. Sockets with the wrong name are silently dropped, so the block loads
+but evaluates with empty inputs.
 
 Writing `math_arithmetic` (the stock-Blockly name) fails with
 `Invalid block definition for type: math_arithmetic`.
@@ -117,6 +121,46 @@ Writing `math_arithmetic` (the stock-Blockly name) fails with
 knowing: `controls_choose`, `controls_do_then_return`, `controls_for_each_dict`.
 
 ## Procedures
+
+A definition names itself with a `NAME` field; a call needs **both** the mutation and a
+`PROCNAME` field. Getting this wrong shows up as an error marker on every call block.
+
+```xml
+<block type="procedures_defnoreturn" id="p1" x="500" y="20">
+  <field name="NAME">recalcBase</field>
+  <statement name="STACK">...</statement>
+</block>
+
+<block type="procedures_callnoreturn" id="c1">
+  <mutation name="recalcBase"></mutation>
+  <field name="PROCNAME">recalcBase</field>
+</block>
+```
+
+The definition has **no** mutation element. A call with only the mutation renders but is
+flagged "procedure not found" (`ai_blocks_diagnostics` → `blockErrors`).
+
+## Notifier: three different things
+
+| Block | What it does | Event |
+| --- | --- | --- |
+| `ShowAlert(text)` | **Toast** — disappears after ~3 s, not a dialog | none |
+| `ShowMessageDialog(message, title, buttonText)` | one-button dialog (3 args) | none |
+| `ShowChooseDialog(message, title, b1, b2, cancelable)` | two-button dialog (5 args) | `AfterChoosing` |
+| `ShowTextDialog` / `ShowPasswordDialog(message, title, cancelable)` | input dialog | `AfterTextInput` |
+
+`AfterChoosing(choice)` receives the **button text as a String** (`"Yes"`, `"Cancel"`, or the
+localised system cancel), not an index. Compare it with a text block:
+
+```
+if choice = "Yes" then <action> else <cancel>
+```
+
+Because `AfterChoosing` fires for every dialog, a global `pendingAction` set before showing
+the dialog is what tells the handler which routine to run. Passing four arguments to
+`ShowMessageDialog` silently does nothing useful — it takes three, and it never raises the
+event, so a confirmation flow built on it will never run.
+
 
 ```xml
 <block type="procedures_defreturn" id="p1" x="500" y="20">
