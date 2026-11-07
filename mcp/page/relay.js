@@ -14,7 +14,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '1.1.2';
+  var VERSION = '1.1.3';
   var WS_URL = window.__AI_RELAY_WS__ || 'ws://127.0.0.1:8766';
   var PREFIX = '[ai-relay]';
 
@@ -277,7 +277,7 @@
     return out;
   }
 
-  function selectComponent(name) {
+  function selectComponent(name, force) {
     return new Promise(function (resolve, reject) {
       var db = componentDb();
       var found = null;
@@ -286,14 +286,28 @@
         if (i && i.name === name) found = i;
       });
       if (!found) return reject(new Error('Component not found: ' + name));
-      if (selectedComponentName() === name) return resolve({ selected: name, alreadySelected: true });
+      if (!force && selectedComponentName() === name) return resolve({ selected: name, alreadySelected: true });
+
+      var rowNode = document.querySelector('.ode-SourceStructureExplorer [data-name="' + name + '"]');
+      if (rowNode) {
+        var item = rowNode.querySelector('.gwt-TreeItem') || rowNode;
+        var label = rowNode.querySelector('.gwt-HTML') || item;
+        click(label);
+        return setTimeout(function () {
+          var got = selectedComponentName();
+          if (got !== name) click(item);
+          setTimeout(function () {
+            resolve({ selected: selectedComponentName(), expected: name, via: 'tree' });
+          }, 250);
+        }, 250);
+      }
 
       var candidates = mockCandidates(name);
       if (candidates.length) {
         click(candidates[0]);
         return setTimeout(function () {
-          resolve({ selected: selectedComponentName(), via: 'mock' });
-        }, 350);
+          resolve({ selected: selectedComponentName(), expected: name, via: 'mock' });
+        }, 400);
       }
 
       var treeItems = document.querySelectorAll('.gwt-TreeItem');
@@ -301,10 +315,8 @@
         if (treeItems[i].textContent.trim() === name) {
           fire(treeItems[i], 'focus');
           click(treeItems[i]);
-          var inner = treeItems[i].querySelector('.gwt-HTML');
-          if (inner) click(inner);
           return setTimeout(function () {
-            resolve({ selected: selectedComponentName(), via: 'tree' });
+            resolve({ selected: selectedComponentName(), expected: name, via: 'tree-text' });
           }, 350);
         }
       }
@@ -541,8 +553,8 @@
           raw: payload,
           success: parts[0] === 'SUCCESS',
           status: parts[0],
-          projectId: parts[4] || null,
-          projectName: parts[5] || null
+          projectId: parts[3] || null,
+          projectName: parts[4] || null
         };
       });
   };
@@ -671,6 +683,8 @@
         if (!name || name === type || name === res.created) return res;
         return H['designer.renameComponent']({ from: res.created, to: name }).then(function () {
           return { created: name, previousName: res.created, type: type, renamed: true };
+        }, function (err) {
+          throw new Error('Component added as "' + res.created + '" but renaming to "' + name + '" failed: ' + err.message);
         });
       });
   };
@@ -678,8 +692,11 @@
   H['designer.renameComponent'] = function (p) {
     if (!p || !p.from || !p.to) throw new Error('from and to required');
     return ensureDesigner()
-      .then(function () { return selectComponent(p.from); })
-      .then(function () { return sleep(300); })
+      .then(function () { return selectComponent(p.from, true); })
+      .then(function (sel) {
+        if (sel.selected !== p.from) throw new Error('Could not select "' + p.from + '" (selected "' + sel.selected + '")');
+        return sleep(300);
+      })
       .then(function () {
         var groups = document.querySelectorAll('.ode-SourceStructureExplorer .ode-PanelButtons');
         var target = null;
@@ -706,6 +723,9 @@
         var names = instanceList().map(function (i) { return i.name; });
         if (names.indexOf(p.to) === -1) {
           throw new Error('Rename did not apply (dialog rejected "' + p.to + '"); components now: ' + names.join(', '));
+        }
+        if (p.from !== p.to && names.indexOf(p.from) !== -1) {
+          throw new Error('Rename renamed the wrong component: "' + p.from + '" still exists. Renamed selection to "' + p.to + '". Components: ' + names.join(', '));
         }
         return { from: p.from, to: p.to, verified: true };
       });
@@ -775,8 +795,13 @@
   H['designer.setProperty'] = function (p) {
     if (!p || !p.component || !p.property) throw new Error('component and property required');
     return ensureDesigner()
-      .then(function () { return selectComponent(p.component); })
-      .then(function () { return sleep(400); })
+      .then(function () { return selectComponent(p.component, true); })
+      .then(function (sel) {
+        if (sel.selected && sel.selected !== p.component) {
+          throw new Error('Could not select "' + p.component + '" (selected "' + sel.selected + '")');
+        }
+        return sleep(350);
+      })
       .then(function () {
         var row = propertyRow(p.property);
         if (!row) throw new Error('Property row not found: ' + p.property +

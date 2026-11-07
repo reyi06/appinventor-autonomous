@@ -1,0 +1,61 @@
+<xml xmlns="https://developers.google.com/blockly/xml">
+  <block type="global_declaration" id="tc_varcount" x="20" y="20">
+    <field name="NAME">count</field>
+    <value name="VALUE">
+      <block type="math_number" id="tc_zero"><field name="NUM">0</field></block>
+    </value>
+  </block>
+
+  <block type="component_event" id="tc_tap" x="20" y="140">
+    <mutation component_type="Button" is_generic="false" instance_name="BtnTap" event_name="Click"></mutation>
+    <field name="COMPONENT_SELECTOR">BtnTap</field>
+    <statement name="DO">
+      <block type="lexical_variable_set" id="tc_set1">
+        <field name="VAR">global count</field>
+        <value name="VALUE">
+          <block type="math_add" id="tc_add">
+            <value name="NUM0">
+              <block type="lexical_variable_get" id="tc_get1"><field name="VAR">global count</field></block>
+            </value>
+            <value name="NUM1">
+              <block type="math_number" id="tc_one"><field name="NUM">1</field></block>
+            </value>
+          </block>
+        </value>
+        <next>
+          <block type="component_set_get" id="tc_lbl1">
+            <mutation component_type="Label" set_or_get="set" property_name="Text" is_generic="false" instance_name="LblCount"></mutation>
+            <field name="COMPONENT_SELECTOR">LblCount</field>
+            <field name="PROP">Text</field>
+            <value name="VALUE">
+              <block type="lexical_variable_get" id="tc_get2"><field name="VAR">global count</field></block>
+            </value>
+          </block>
+        </next>
+      </block>
+    </statement>
+  </block>
+
+  <block type="component_event" id="tc_reset" x="20" y="420">
+    <mutation component_type="Button" is_generic="false" instance_name="BtnReset" event_name="Click"></mutation>
+    <field name="COMPONENT_SELECTOR">BtnReset</field>
+    <statement name="DO">
+      <block type="lexical_variable_set" id="tc_set2">
+        <field name="VAR">global count</field>
+        <value name="VALUE">
+          <block type="math_number" id="tc_zero2"><field name="NUM">0</field></block>
+        </value>
+        <next>
+          <block type="component_set_get" id="tc_lbl2">
+            <mutation component_type="Label" set_or_get="set" property_name="Text" is_generic="false" instance_name="LblCount"></mutation>
+            <field name="COMPONENT_SELECTOR">LblCount</field>
+            <field name="PROP">Text</field>
+            <value name="VALUE">
+              <block type="text" id="tc_zeroText"><field name="TEXT">0</field></block>
+            </value>
+          </block>
+        </next>
+      </block>
+    </statement>
+  </block>
+</xml>

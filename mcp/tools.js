@@ -658,7 +658,6 @@ export function createTools(ctx) {
       } catch {
         /* relay offline: type checks skipped */
       }
-
       const issues = [];
       const summary = [];
 
@@ -700,6 +699,36 @@ export function createTools(ctx) {
         const missing = [...new Set(refs.filter((r) => r && !names.has(r)))];
         for (const m of missing) {
           issues.push({ severity: 'error', screen: s.screen, kind: 'missing_component_reference', instance: m });
+        }
+
+        // variable scoping: AI compiles `lexical_variable_*` with no prefix as a
+        // LOCAL, so a global read/write without the "global " prefix throws
+        // "unbound location $name" at runtime.
+        const globals = new Set(
+          [...bx.matchAll(/<block[^>]*type="global_declaration"[^>]*>[\s\S]*?<field name="NAME">([^<]*)<\/field>/g)].map((m) => m[1])
+        );
+        const locals = new Set(
+          [...bx.matchAll(/<block[^>]*type="local_declaration_(?:statement|expression)"[^>]*>[\s\S]*?<field name="VAR">([^<]*)<\/field>/g)].map((m) => m[1])
+        );
+        const varRefs = [...bx.matchAll(/<field name="VAR">([^<]*)<\/field>/g)].map((m) => m[1]);
+        const seenVar = new Set();
+        for (const v of varRefs) {
+          if (seenVar.has(v)) continue;
+          seenVar.add(v);
+          if (v.startsWith('global ')) {
+            const bare = v.slice('global '.length);
+            if (!globals.has(bare)) {
+              issues.push({ severity: 'error', screen: s.screen, kind: 'missing_global_declaration', variable: bare });
+            }
+          } else if (globals.has(v) && !locals.has(v)) {
+            issues.push({
+              severity: 'error',
+              screen: s.screen,
+              kind: 'global_missing_prefix',
+              variable: v,
+              fix: `rename reference "${v}" to "global ${v}"`
+            });
+          }
         }
 
         // duplicate event handlers
@@ -839,6 +868,56 @@ export function createTools(ctx) {
     handler: async ({ device } = {}) => {
       const dev = await adb.pickDevice(device);
       return { device: dev.serial, ...(await adb.readCrashes(dev.serial)) };
+    }
+  });
+
+  add({
+    name: 'ai_repair',
+    description: 'Detect block-level defects and apply the smallest safe fix. Currently fixes global-variable references that are missing the required "global " prefix (a runtime "unbound location" crash). Destructive fixes are reported, never applied automatically.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        apply: { type: 'boolean', description: 'Write the fix back to the workspace (default true)' }
+      }
+    },
+    handler: async ({ apply = true } = {}) => {
+      const current = await call('blocks.get', { format: 'xml' }, 60000);
+      const xml = current.xml;
+      const globals = new Set(
+        [...xml.matchAll(/<block[^>]*type="global_declaration"[^>]*>[\s\S]*?<field name="NAME">([^<]*)<\/field>/g)].map((m) => m[1])
+      );
+      const locals = new Set(
+        [...xml.matchAll(/<block[^>]*type="local_declaration_(?:statement|expression)"[^>]*>[\s\S]*?<field name="VAR">([^<]*)<\/field>/g)].map((m) => m[1])
+      );
+
+      const fixes = [];
+      let next = xml;
+      for (const name of globals) {
+        if (locals.has(name)) continue;
+        const needle = `<field name="VAR">${name}</field>`;
+        if (!next.includes(needle)) continue;
+        const count = next.split(needle).length - 1;
+        next = next.split(needle).join(`<field name="VAR">global ${name}</field>`);
+        fixes.push({ kind: 'global_missing_prefix', variable: name, references: count, fix: `"${name}" -> "global ${name}"` });
+      }
+
+      const blocked = [];
+      const dupes = [...xml.matchAll(/<mutation[^>]*instance_name="([^"]*)"[^>]*event_name="([^"]*)"/g)].map((m) => `${m[1]}.${m[2]}`);
+      const seen = new Set();
+      for (const d of dupes) {
+        if (seen.has(d)) blocked.push({ kind: 'duplicate_event_handler', handler: d, reason: 'removing blocks is destructive; fix manually' });
+        seen.add(d);
+      }
+
+      if (!fixes.length) {
+        return { ok: true, changed: false, fixes: [], blocked, note: blocked.length ? 'Only destructive issues found; nothing applied.' : 'No repairable issues found.' };
+      }
+
+      if (apply) {
+        await call('blocks.set', { xml: next }, 90000);
+      }
+
+      return { ok: true, changed: apply, applied: apply, fixes, blocked, bytesBefore: xml.length, bytesAfter: next.length };
     }
   });
 
