@@ -1,0 +1,18 @@
+{
+  "name": "appinventor-autonomous",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Autonomous MIT App Inventor control plane: MCP server + in-page relay for Designer, Blockly, AIA export, APK build",
+  "type": "module",
+  "main": "mcp/server.js",
+  "scripts": {
+    "start": "node mcp/server.js",
+    "test": "node --test tests/"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

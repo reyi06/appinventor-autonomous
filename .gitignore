@@ -1,0 +1,8 @@
+node_modules/
+logs/
+exports/
+builds/
+samples/*.apk
+samples/*.aia
+*.log
+.DS_Store

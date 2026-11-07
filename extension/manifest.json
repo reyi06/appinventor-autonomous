@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "App Inventor Autonomous Bridge",
+  "version": "1.0.0",
+  "description": "Keeps the appinventor-autonomous MCP relay attached to every MIT App Inventor editor tab.",
+  "permissions": ["scripting", "tabs", "alarms", "storage"],
+  "host_permissions": [
+    "*://*.appinventor.mit.edu/*",
+    "http://127.0.0.1:8766/*",
+    "http://localhost:8766/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "App Inventor Autonomous Bridge",
+    "default_popup": "popup.html"
+  }
+}
