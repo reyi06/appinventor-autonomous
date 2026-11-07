@@ -14,7 +14,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '1.1.5';
+  var VERSION = '1.1.6';
   var WS_URL = window.__AI_RELAY_WS__ || 'ws://127.0.0.1:8766';
   var PREFIX = '[ai-relay]';
 
@@ -634,19 +634,78 @@
         });
       } catch (e) { /* ignore */ }
       if (current && current !== name) {
-        throw new Error('Cannot remove screen "' + name + '": only the screen currently open in the Designer can be removed (open: "' + current + '").');
+        throw new Error('Cannot remove screen "' + name + '": only the screen currently open in the Designer can be removed (open: "' + current + '"). Use ai_screen_switch first.');
       }
       var btn = byText('div.ode-TextButton', 'Remove Screen') || byTextContains('div.ode-TextButton', 'Remove Screen');
       if (!btn) throw new Error('Remove Screen button not found');
       click(btn);
-      return waitFor(function () { return document.querySelector('.ode-DialogBox'); }, 6000).catch(function () { return null; });
+      return waitFor(function () { return document.querySelector('.ode-DialogBox'); }, 8000);
     }).then(function (dialog) {
-      if (dialog) {
-        var yes = dialogButton(dialog, /^(OK|Ok|Yes|Remove|Delete)$/);
-        if (yes) click(yes);
-        return sleep(900).then(function () { try { dismissDialogs(); } catch (e) { /* ignore */ } return { screen: name, requested: true }; });
+      // The removal dialog demands the screen name typed into a text box.
+      var input = dialogTextInput(dialog);
+      if (input) {
+        input.focus();
+        input.value = name;
+        fire(input, 'input');
+        fire(input, 'change');
       }
-      return { screen: name, requested: true, note: 'No confirmation dialog appeared' };
+      return sleep(200).then(function () { return dialog; });
+    }).then(function (dialog) {
+      var del = dialogButton(dialog, /^Delete$/i) || dialogButton(dialog, /^(OK|Ok|Yes|Remove)$/i);
+      if (!del) throw new Error('Delete button not found in the Remove Screen dialog');
+      click(del);
+      return sleep(1500);
+    }).then(function () {
+      var names = [];
+      try {
+        var inst2 = instances();
+        Object.keys(inst2).forEach(function (k) {
+          if (inst2[k] && inst2[k].name) names.push(inst2[k].name);
+        });
+      } catch (e) { /* ignore */ }
+      var stillThere = document.querySelector('.ode-DialogBox');
+      var dialogText = stillThere ? stillThere.innerText.replace(/\s+/g, ' ').slice(0, 200) : null;
+      if (stillThere) {
+        try { dismissDialogs(); } catch (e) { /* ignore */ }
+      }
+      return { screen: name, blocksRemaining: names, dialogText: dialogText };
+    });
+  };
+
+  H['designer.switchScreen'] = function (p) {
+    var name = p && p.name;
+    if (!name) throw new Error('name required');
+    return ensureDesigner().then(function () {
+      var trigger = null;
+      var buttons = document.querySelectorAll('div.ode-TextButton');
+      for (var i = 0; i < buttons.length; i++) {
+        var txt = buttons[i].textContent.trim();
+        if (txt.indexOf('\u25be') !== -1) { trigger = buttons[i]; break; } // "Screen1 ▾"
+      }
+      if (!trigger) throw new Error('Screen selector not found (is a project open with more than one screen?)');
+      click(trigger);
+      return waitFor(function () {
+        return document.querySelector('.ode-ContextMenu, .gwt-PopupPanel');
+      }, 5000);
+    }).then(function () {
+      var entry = byText('.ode-ContextMenuItem', name) || byText('td', name) || byText('.gwt-HTML', name);
+      if (!entry) throw new Error('Screen not found in the selector menu: ' + name);
+      click(entry.closest('.ode-ContextMenuItem') || entry);
+      return sleep(2500).then(function () {
+        var current = null;
+        try {
+          var inst = instances();
+          Object.keys(inst).forEach(function (k) {
+            if (inst[k] && inst[k].typeName === 'Form') current = inst[k].name;
+          });
+        } catch (e) { /* ignore */ }
+        if (current !== name) {
+          throw new Error('Screen switch did not take effect (still on "' + current + '"). ' +
+            'The screen selector in this App Inventor build does not respond to programmatic clicks; ' +
+            'open the screen manually, then run screen/component commands.');
+        }
+        return { requested: name, current: current, switched: true };
+      });
     });
   };
 

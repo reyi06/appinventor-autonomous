@@ -385,15 +385,26 @@ export function createTools(ctx) {
   });
 
   add({
+    name: 'ai_screen_switch',
+    description: 'Open a different screen in the Designer. Experimental: the screen selector may not respond to programmatic clicks in some App Inventor builds; fails loudly if the screen did not change.',
+    inputSchema: {
+      type: 'object',
+      properties: { name: { type: 'string' } },
+      required: ['name']
+    },
+    handler: async ({ name }) => call('designer.switchScreen', { name }, 60000)
+  });
+
+  add({
     name: 'ai_screen_remove',
-    description: 'Remove a screen from the project.',
+    description: 'Remove a screen from the project. The screen must be the one currently open in the Designer.',
     inputSchema: {
       type: 'object',
       properties: { name: { type: 'string' } },
       required: ['name']
     },
     handler: async ({ name }) => {
-      const res = await call('designer.removeScreen', { name }, 60000);
+      const res = await call('designer.removeScreen', { name }, 90000);
       await new Promise((r) => setTimeout(r, 2500));
       let screens = [];
       try {

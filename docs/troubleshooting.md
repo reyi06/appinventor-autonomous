@@ -112,6 +112,31 @@ are internals. They were verified against `ai2a.appinventor.mit.edu` with Form
 If a selector broke, inspect with `ai_ui_eval` and patch `mcp/page/relay.js` — the server
 serves it fresh, no extension rebuild needed.
 
+## `ai_screen_remove` fails
+
+**Symptoms** `timeout after 8000ms` (no dialog), or `Cannot remove screen "<x>": only the
+screen currently open…`.
+
+**Causes**
+
+1. Removal only works on the screen open in the Designer.
+2. A leftover menu/popup from a previous interaction can swallow the button click, so the
+   confirmation dialog never appears.
+
+**Fix** Dismiss stray popups (Escape, or reload the tab), make sure the target screen is the
+open one, then retry. The dialog requires the screen name to be typed into its text box —
+the relay does that automatically (relay ≥ 1.1.6).
+
+## Screen switching does not work
+
+**Symptom** `Screen switch did not take effect`.
+
+**Cause** The `<Screen> ▾` selector in this App Inventor build does not open from
+programmatic (untrusted) clicks.
+
+**Fix** Open the screen manually in the Designer, then run the component/block tools. This is
+the one place where a human click is still required.
+
 ## Logs
 
 - Server: `logs/mcp.log` (every relay connect/disconnect and tool dispatch).

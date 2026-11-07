@@ -25,8 +25,9 @@ Verified end to end on `ai2a.appinventor.mit.edu` (Form `$Version 32`), see
 | Install + launch + scripted UI tests + crash detection | works (emulator) |
 | Static validation + safe auto-repair | works |
 | Add screen | works |
-| Remove screen | only the screen currently open in the Designer |
-| Switch screens, asset upload, extensions, colour/asset pickers | not implemented |
+| Remove screen | works for the screen currently open (the dialog requires typing its name) |
+| Switch screens | experimental — the selector does not always respond to programmatic clicks |
+| Asset upload, extensions, colour/asset pickers | not implemented |
 
 ## Quick start
 

@@ -71,9 +71,11 @@ nested in `children`.
 ## Screens
 
 - `ai_screen_add` creates a screen and verifies it by re-exporting the project.
-- `ai_screen_remove` only removes the screen currently open in the Designer. Switching
-  screens is not exposed as a clickable control in this App Inventor build, so remove
-  screens one at a time by opening each first.
+- `ai_screen_remove` types the screen name into the confirmation box and clicks Delete. The
+  screen must be the one currently open in the Designer.
+- `ai_screen_switch` is experimental: the `<Screen> ▾` selector in this App Inventor build
+  does not reliably open from programmatic clicks, so the tool fails loudly instead of
+  pretending the screen changed.
 
 ## Blocking dialogs
 
