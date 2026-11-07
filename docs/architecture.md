@@ -73,3 +73,24 @@ Timeouts are per call: 45 s default, 90 s for block writes, up to 15 min for a c
   APK directly so large binaries never travel through the MCP transport.
 - `ai_ui_eval` executes arbitrary JS in the page. It exists for debugging, not for
   production workflows.
+
+## Access control on the loopback listener
+
+Loopback keeps the listener off the network, not away from the browser: a page can POST to
+`127.0.0.1:8766`, and `ai_asset_upload` reads local files into the project. Three controls in
+`mcp/lib/security.js`, all exercised by `npm run security`:
+
+| Control | Applies to | Closes |
+| --- | --- | --- |
+| `Host` allowlist (`127.0.0.1`, `localhost`, `[::1]` on the bound port) | every request | DNS rebinding |
+| `Origin` allowlist (`https://*.appinventor.mit.edu`) | WebSocket upgrade, CORS preflight | another site driving the editor |
+| `Authorization: Bearer <token>` + `Content-Type: application/json` | `POST /rpc`, `POST /relay-call` | CSRF, including the preflight-free `text/plain` kind |
+
+The token is created on first run in `logs/token` (48 hex characters, gitignored) and is shared
+by every instance in the checkout, which is what keeps the port-busy fallback above working:
+the second instance forwards `POST /relay-call` with the same bearer token.
+
+`GET /relay.js` stays public — it is the client script, and a page that loads it still cannot
+open a socket without an allowed `Origin`. `GET /health` stays public but is unreadable
+cross-origin, because CORS reflects only allowed origins.
+

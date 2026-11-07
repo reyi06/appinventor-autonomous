@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Security
+- **The loopback listener is now authenticated.** Binding `127.0.0.1` keeps the server off the
+  network but not away from the browser: any page could `POST` to it, and `ai_asset_upload`
+  reads an arbitrary local file into the project, which is an arbitrary-file-read from a
+  website. Fixed with four controls:
+  - `Host` must be the loopback name it listens on (DNS rebinding);
+  - the WebSocket upgrade requires `Origin: https://*.appinventor.mit.edu` (another site's page);
+  - `POST /rpc` and `POST /relay-call` require `Authorization: Bearer <token>` from the new
+    `logs/token` (created on first run, 0600, gitignored, overridable with
+    `APPINVENTOR_MCP_TOKEN`);
+  - those POSTs require `Content-Type: application/json`, so the preflight-free "simple request"
+    that made the token advisory is refused.
+  CORS now reflects only allowed origins instead of `*`. New `npm run security` runs 34 checks,
+  including a real WebSocket handshake from a foreign origin.
+
 ### Fixed
 - **Screen switching now works.** `ai_screen { action: "switch" }` was documented as
   experimental because the toolbar selector never opened. Two independent bugs:

@@ -19,8 +19,9 @@
   "scripts": {
     "start": "node mcp/server.js",
     "selftest": "node tests/mcp-smoke.mjs",
+    "security": "node tests/security.mjs",
     "corpus": "node tests/corpus.mjs",
-    "test": "node tests/mcp-smoke.mjs && node tests/corpus.mjs"
+    "test": "node tests/mcp-smoke.mjs && node tests/security.mjs && node tests/corpus.mjs"
   },
   "dependencies": {
     "ws": "^8.18.0"

@@ -9,6 +9,7 @@ import { createMcpServer } from './lib/mcp.js';
 import { createTools } from './tools.js';
 import { createPrompts } from './prompts.js';
 import { createResources } from './resources.js';
+import { loadToken, originAllowed, hostAllowed, tokenMatches, isJsonRequest } from './lib/security.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -17,6 +18,10 @@ const LOG_DIR = path.join(ROOT, 'logs');
 const LOG_FILE = path.join(LOG_DIR, 'mcp.log');
 
 fs.mkdirSync(LOG_DIR, { recursive: true });
+
+/** Bearer token for the two POST endpoints; created on first run. */
+const TOKEN_INFO = loadToken(LOG_DIR);
+const TOKEN = TOKEN_INFO.token;
 
 function log(msg) {
   const line = `[${new Date().toISOString()}] ${msg}\n`;
@@ -51,17 +56,61 @@ function buildTools(h) {
   return result;
 }
 
+const escapeHtml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
 function createHttpHandler(h) {
   return async (req, res) => {
     const url = new URL(req.url, `http://127.0.0.1:${PORT}`);
+    const origin = req.headers.origin;
 
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Headers', '*');
+    // DNS rebinding. The socket is loopback either way, but the name is not:
+    // a page on evil.com that resolves to 127.0.0.1 still sends `Host: evil.com`.
+    if (!hostAllowed(req.headers.host, PORT)) {
+      res.writeHead(403, { 'Content-Type': 'text/plain' });
+      res.end(`Host ${req.headers.host} not accepted: this server answers only on 127.0.0.1:${PORT}`);
+      return;
+    }
+
+    // Reflect only our own origins. `*` plus `Allow-Headers: *` used to make the
+    // whole surface callable from any page.
+    if (origin && originAllowed(origin)) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Headers', 'content-type, authorization');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      res.setHeader('Vary', 'Origin');
+    }
 
     if (req.method === 'OPTIONS') {
+      // Refusing the preflight means the real request is never sent.
+      if (origin && !originAllowed(origin)) {
+        res.writeHead(403, { 'Content-Type': 'text/plain' }).end('origin not allowed');
+        return;
+      }
       res.writeHead(204).end();
       return;
     }
+
+    const deny = (status, message) => {
+      res.writeHead(status, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: message }, null, 2));
+    };
+
+    /**
+     * Both POST endpoints execute tools, so both need the token. Requiring JSON
+     * is what makes the header mandatory: a `text/plain` body would be a CORS
+     * simple request and skip the preflight entirely.
+     */
+    const guarded = () => {
+      if (!isJsonRequest(req)) {
+        deny(415, 'Content-Type: application/json required');
+        return false;
+      }
+      if (!tokenMatches(req.headers.authorization, TOKEN)) {
+        deny(401, `Missing or wrong token. Send "Authorization: Bearer <token>" with the value from ${TOKEN_INFO.file}`);
+        return false;
+      }
+      return true;
+    };
 
     if (url.pathname === '/relay.js') {
       try {
@@ -89,6 +138,7 @@ function createHttpHandler(h) {
     }
 
     if (url.pathname === '/relay-call' && req.method === 'POST') {
+      if (!guarded()) return;
       let body = '';
       req.on('data', (c) => { body += c; });
       req.on('end', async () => {
@@ -106,6 +156,7 @@ function createHttpHandler(h) {
     }
 
     if (url.pathname === '/rpc' && req.method === 'POST') {
+      if (!guarded()) return;
       let body = '';
       req.on('data', (c) => { body += c; });
       req.on('end', async () => {
@@ -137,7 +188,10 @@ function createHttpHandler(h) {
 <h1>appinventor-autonomous MCP</h1>
 <p>Relay script: <a href="/relay.js">/relay.js</a></p>
 <p>Health: <a href="/health">/health</a></p>
-<p>Connected tabs: ${h.clientCount()}</p>`);
+<p>Connected tabs: ${h.clientCount()}</p>
+<p><code>POST /rpc</code> and <code>POST /relay-call</code> require
+<code>Authorization: Bearer &lt;token&gt;</code> from <code>${escapeHtml(TOKEN_INFO.file)}</code>.
+The WebSocket relay accepts only App Inventor origins.</p>`);
       return;
     }
 
@@ -162,7 +216,9 @@ function start() {
   hub = createHub(httpServer, {
     log,
     expectedRelayVersion: EXPECTED_RELAY_VERSION,
-    remoteFallback: () => remoteHint
+    remoteFallback: () => remoteHint,
+    originAllowed,
+    token: TOKEN
   });
 
   built = buildTools(hub);
@@ -183,6 +239,7 @@ function start() {
   httpServer.listen(PORT, '127.0.0.1', () => {
     bound = true;
     log(`relay listening on http://127.0.0.1:${PORT} (relay: /relay.js)`);
+    log(`POST /rpc and POST /relay-call require "Authorization: Bearer <token>" from ${TOKEN_INFO.file}`);
   });
 }
 

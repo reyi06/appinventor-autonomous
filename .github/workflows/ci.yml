@@ -22,6 +22,8 @@ jobs:
       - run: npm ci
       - name: MCP protocol smoke test
         run: npm run selftest
+      - name: Access control (HTTP + WebSocket)
+        run: npm run security
       - name: Corpus (real .aia projects, offline)
         run: npm run corpus
 

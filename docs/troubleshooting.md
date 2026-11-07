@@ -144,6 +144,35 @@ effect (still on "X")`.
 **Fix** Re-inject the relay (`ai_status { action: "inject" }`) and retry. Screen switching no
 longer needs a human click.
 
+## `/rpc` returns 401 or 415
+
+**Symptom** `POST /rpc` returns `401 Missing or wrong token` or `415 Content-Type:
+application/json required`.
+
+**Cause** Both POST endpoints execute tools, so they need the bearer token from `logs/token`
+and a JSON content type. The MCP transport over stdio is unaffected; this applies only to the
+HTTP debugging endpoints.
+
+**Fix**
+
+```sh
+curl -s http://127.0.0.1:8766/rpc \
+  -H "Authorization: Bearer $(cat logs/token)" \
+  -H "Content-Type: application/json" \
+  -d '{"tool":"ai_status","arguments":{"action":"status"}}'
+```
+
+On Windows, `Get-Content logs/token` and pass the value in the `Authorization` header.
+
+## The relay never connects (WebSocket 403)
+
+**Cause** The page is not on an App Inventor origin. The handshake is rejected unless `Origin`
+matches `https://*.appinventor.mit.edu`.
+
+**Fix** Open the editor at `https://ai2.appinventor.mit.edu` (or `ai2a`/`code`) and inject
+there. For a local App Inventor build, allow its origin with
+`APPINVENTOR_MCP_ALLOW_ORIGIN=http://localhost:8888`.
+
 ## Logs
 
 - Server: `logs/mcp.log` (every relay connect/disconnect and tool dispatch).

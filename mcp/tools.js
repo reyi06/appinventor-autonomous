@@ -108,6 +108,9 @@ export function createTools(ctx) {
         connectedTabs: connected,
         clients,
         workDir,
+        // The POST endpoints execute tools, so they need the bearer token that
+        // is generated on first run. Only the path is reported here.
+        tokenFile: path.join(workDir, 'logs', 'token'),
         hint: connected === 0
           ? 'Run ai_relay_inject and execute the returned script in the App Inventor editor tab.'
           : 'Relay ready.'

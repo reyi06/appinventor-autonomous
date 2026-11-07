@@ -16,17 +16,32 @@ function versionAtLeast(a, b) {
   return true;
 }
 
-export function createHub(httpServer, { log = () => {}, remoteFallback = null, expectedRelayVersion = null } = {}) {
+export function createHub(httpServer, { log = () => {}, remoteFallback = null, expectedRelayVersion = null, originAllowed = null, token = null } = {}) {
   const clients = new Map(); // ws -> meta
   const pending = new Map(); // id -> { resolve, reject, timer, tool }
   let wss = null;
   let seq = 0;
 
   if (httpServer) {
-    wss = new WebSocketServer({ server: httpServer });
+    wss = new WebSocketServer({ noServer: true });
     // A bind failure surfaces here too; without a listener it becomes an
     // uncaught exception that kills the process.
     wss.on('error', (err) => log(`websocket server error: ${err.message}`));
+
+    // The relay lives in a page on appinventor.mit.edu, so every legitimate
+    // connection carries that Origin. Checking it here is what stops any other
+    // site the user has open from attaching to the editor.
+    httpServer.on('upgrade', (req, socket, head) => {
+      const origin = req.headers.origin;
+      if (originAllowed && !originAllowed(origin)) {
+        log(`refusing websocket from origin ${origin || '(none)'}`);
+        socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
+        socket.destroy();
+        return;
+      }
+      wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
+    });
+
     attach(wss);
   }
 
@@ -130,7 +145,10 @@ export function createHub(httpServer, { log = () => {}, remoteFallback = null, e
     if (live.length === 0 && remote) {
       return fetch(`${remote}/relay-call`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
         body: JSON.stringify({ tool, params, timeoutMs })
       })
         .then(async (res) => {

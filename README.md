@@ -60,6 +60,14 @@ Add it to your MCP client (Claude Code, Codex, Cursor, OpenCode — anything tha
 Requirements: **Node 20+**, a Chromium browser, and an App Inventor account. Android builds
 and device testing additionally need the Android SDK (`adb`, plus `build-tools` for `aapt`).
 
+### Local listener
+
+The server listens on `127.0.0.1:8766` for the browser relay and optionally for scripts.
+Loopback is not a security boundary on its own — a page in your browser can reach it — so the
+listener is authenticated: the WebSocket accepts only `*.appinventor.mit.edu` origins, and
+`POST /rpc` / `POST /relay-call` need `Authorization: Bearer <token>` with the token generated
+on first run into `logs/token` (gitignored). Details in [SECURITY.md](SECURITY.md).
+
 ## Quick start
 
 1. **Attach the relay to the editor.** Either
