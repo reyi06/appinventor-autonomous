@@ -15,7 +15,7 @@
   'use strict';
 
   var VERSION = '1.3.3';
-  var BUILD = '2026-11-08.1'; // implementation revision: changing this replaces a live instance
+  var BUILD = '2026-11-08.4'; // implementation revision: changing this replaces a live instance
   var WS_URL = window.__AI_RELAY_WS__ || 'ws://127.0.0.1:8766';
   var PREFIX = '[ai-relay]';
 
@@ -307,10 +307,11 @@
       var pct = b.match(/^-(\d+)$/);
       if (pct && (-1000 - parseInt(pct[1], 10)) === n) return true;
     }
-    var pc = a.match(/^(-?\d+)\s*%$/);
+    var pc = a.match(/^(-?\d+)\s*(%|percent)$/i);
     if (pc) {
       var p = parseInt(pc[1], 10);
       if (b === String(-1000 - p)) return true;
+      if (b === p + '%') return true;
     }
     return false;
   }
@@ -594,6 +595,10 @@
     var raw = String(value).trim();
     var norm = raw.replace(/\.+$/, '').toLowerCase();
     var numeric = /^-?\d+$/.test(raw) ? parseInt(raw, 10) : null;
+
+    // Accept the language the Designer uses: "50%" means the stored -1050.
+    var pct = raw.match(/^(\d+(?:\.\d+)?)\s*%$/);
+    if (pct && numeric === null) numeric = -(1000 + Math.round(parseFloat(pct[1])));
 
     function checkRadio(radio) {
       if (!radio) return false;
@@ -1050,7 +1055,13 @@
         return H['designer.renameComponent']({ from: res.created, to: name }).then(function () {
           return { created: name, previousName: res.created, type: type, renamed: true };
         }, function (err) {
-          throw new Error('Component added as "' + res.created + '" but renaming to "' + name + '" failed: ' + err.message);
+          // Do not leave a half-created component behind when the rename fails.
+          return Promise.resolve(H['designer.removeComponent']({ name: res.created }))
+            .catch(function () { /* best effort */ })
+            .then(function () {
+              throw new Error('Component added as "' + res.created + '" but renaming to "' + name +
+                '" failed; the component was removed again. ' + err.message);
+            });
         });
       });
   };

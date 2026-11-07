@@ -61,6 +61,41 @@ Sizing values are the strings App Inventor stores: `Automatic...`, `Fill parent.
 number. In `.scm` they are encoded as `-1` (automatic), `-2` (fill parent) and
 `-1000 - percent` (for example `-1050` for 50%).
 
+### Percentages are screen-relative
+
+Per MIT's [Responsive Design](https://ai2a.appinventor.mit.edu/reference/other/responsiveDesign.html)
+guide, **a percentage is a fraction of the screen, not of the parent container** — a button
+at 50% inside a `HorizontalArrangement` is half the *screen* width. Two consequences for
+compiled layouts:
+
+- converting a design frame to percentages must divide by the screen width, never by the
+  parent frame's width;
+- nesting percentage-sized components compounds unpredictably, so prefer `Fill parent`
+  inside arrangements and reserve percentages for top-level blocks.
+
+### Fixed vs responsive
+
+`Screen.Sizing` is a project-wide property (`sizing=` in `project.properties`):
+
+| Mode | Design canvas | Percentages | Pixels |
+| --- | --- | --- | --- |
+| `Fixed` | 320×460, scaled to the device | resolve against the 320×460 canvas | scaled with the canvas |
+| `Responsive` | the device's real pixels | resolve against the device | stay at that many pixels |
+
+New apps should use **Responsive + percentages or `Fill parent`**. Two mixes are traps the
+guide calls out, and `ai_validate` warns about both:
+
+- pixels with `Responsive` — the element stays the same physical size on a tablet, so the
+  layout stops matching the design (`fixed_size_with_responsive`);
+- percentages with `Fixed` — they resolve against the 320×460 canvas, so they do nothing on
+  larger screens (`percent_with_fixed_sizing`).
+
+Legitimate exceptions: a low-resolution bitmap that must not upscale, and a `Canvas` holding
+drawings or sprites. The guide recommends a fixed-size canvas, or computing sprite
+coordinates at runtime from `Canvas.Width`/`Height` — which is why the layout compiler treats
+`kind: "canvas"` as unsupported instead of guessing.
+
+
 ## Nesting
 
 `parent` works for real containers (`HorizontalArrangement`, `VerticalArrangement`,

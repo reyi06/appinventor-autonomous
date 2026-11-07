@@ -808,8 +808,10 @@ export function createTools(ctx) {
 
       // Legacy theme changes the whole look (old Holo widgets and dialogs).
       const propsPath = [...files.keys()].find((k) => k.endsWith('project.properties'));
+      let sizing = 'fixed';
       if (propsPath) {
         const props = parseProperties(files.get(propsPath).toString('utf8'));
+        sizing = String(props.sizing || 'Fixed').toLowerCase();
         if (!props.theme || props.theme === 'Classic') {
           issues.push({
             severity: 'warning',
@@ -851,6 +853,38 @@ export function createTools(ctx) {
           }
         }
 
+        // Sizing hygiene, straight from MIT's Responsive Design guidance:
+        // percentages are a fraction of the SCREEN, and pixels under Responsive
+        // sizing stop matching the design on other devices.
+        for (const c of flat) {
+          if (c.type === 'Canvas') continue; // the documented exception
+          for (const prop of ['Width', 'Height']) {
+            const raw = c.properties[prop];
+            if (raw == null || raw === '') continue;
+            const n = Number(raw);
+            if (!Number.isFinite(n)) continue;
+            if (sizing === 'responsive' && n > 0) {
+              issues.push({
+                severity: 'warning',
+                screen: s.screen,
+                kind: 'fixed_size_with_responsive',
+                component: c.name,
+                property: prop,
+                detail: `${n}px under Sizing=Responsive stays ${n}px on every device; use a percentage or Fill parent unless this is a deliberate fixed-size image`
+              });
+            } else if (sizing !== 'responsive' && n <= -1000) {
+              issues.push({
+                severity: 'info',
+                screen: s.screen,
+                kind: 'percent_with_fixed_sizing',
+                component: c.name,
+                property: prop,
+                detail: 'percentage under Sizing=Fixed resolves against the 320x460 canvas and has no effect on larger screens'
+              });
+            }
+          }
+        }
+
         // missing assets referenced by properties
         for (const c of flat) {
           for (const [prop, val] of Object.entries(c.properties)) {
@@ -868,8 +902,7 @@ export function createTools(ctx) {
         const scan = scanBky(bx);
         const blockCount = scan.blockCount;
 
-        if (scan.legacy) {
-          scanNotes.push(`${s.screen}: legacy pre-2018 block format; block-level checks skipped (the editor upgrades it on import)`);
+        if (scan.legacy) {          scanNotes.push(`${s.screen}: legacy pre-2018 block format; block-level checks skipped (the editor upgrades it on import)`);
         } else {
           // Blocks referencing components that no longer exist.
           const missing = scan.instanceRefs.filter((r) => r && !names.has(r));
