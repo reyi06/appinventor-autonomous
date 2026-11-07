@@ -92,18 +92,11 @@ const procCall = (name) => block('procedures_callnoreturn', {
 });
 
 // App Inventor's Notifier: ShowAlert is a transient toast, ShowMessageDialog is a
-// one-button dialog with no event, and only ShowChooseDialog raises AfterChoosing
-// (with the button TEXT, not an index).
+// one-button dialog. No confirmation dialogs: an action runs, then reports.
 const showDialog = (message, title, button = 'OK') =>
   callMethod('Notifier1', 'Notifier', 'ShowMessageDialog', [txt(message), txt(title), txt(button)]);
-const askConfirm = (action, message, title) => seq(
-  setVar('pendingAction', txt(action)),
-  // cancelable=false: pass just the two buttons. cancelable=true would add a
-  // THIRD "Cancel" button on top of them (Yes / Cancel / Cancel).
-  callMethod('Notifier1', 'Notifier', 'ShowChooseDialog', [txt(message), txt(title), txt('Yes'), txt('Cancel'), bool(false)])
-);
+const check = (message) => showDialog(message, 'Hold on');
 const done = (message) => showDialog(message, 'Done');
-const check = (message) => showDialog(message, 'Check input');
 
 /* ---------------------------------------------------------------- globals */
 
@@ -113,8 +106,7 @@ const globals = [
   globalVar('total', num(0)),
   globalVar('discountPct', num(0)),
   globalVar('discountAmt', num(0)),
-  globalVar('updating', bool(false)),
-  globalVar('pendingAction', txt(''))
+  globalVar('updating', bool(false))
 ];
 
 /* ------------------------------------------------------------- procedures */
@@ -236,10 +228,10 @@ const discHandlers = [0, 5, 10, 20].map((pct) => {
 const totalHandler = event('BtnTotal', 'Button', 'Click', ifBlock([
   {
     cond: and(eq(getVar('basePrice'), num(0)), eq(getVar('topPrice'), num(0))),
-    stack: check('Select a pizza and at least one extra.')
+    stack: check('Pick a pizza and at least one extra first.')
   },
-  { cond: eq(getVar('basePrice'), num(0)), stack: check('Select a pizza first.') },
-  { cond: eq(getVar('topPrice'), num(0)), stack: check('Select at least one extra.') }
+  { cond: eq(getVar('basePrice'), num(0)), stack: check('Pick a pizza first.') },
+  { cond: eq(getVar('topPrice'), num(0)), stack: check('Add at least one extra first.') }
 ], seq(
   setVar('total', add(getVar('basePrice'), getVar('topPrice'))),
   setProp('LbTotal', 'Label', 'Text', getVar('total')),
@@ -249,8 +241,8 @@ const totalHandler = event('BtnTotal', 'Button', 'Click', ifBlock([
 )));
 
 const discountHandler = event('BtnDiscAmt', 'Button', 'Click', ifBlock([
-  { cond: eq(getVar('total'), num(0)), stack: check('Press TOTAL first.') },
-  { cond: not(anyDiscount), stack: check('Please select a discount.') }
+  { cond: eq(getVar('total'), num(0)), stack: check('Tap TOTAL first so there is an amount to discount.') },
+  { cond: not(anyDiscount), stack: check('Choose a discount percentage first.') }
 ], seq(
   setVar('discountAmt', div(mul(getVar('total'), getVar('discountPct')), num(100))),
   setProp('LbDiscAmt', 'Label', 'Text', getVar('discountAmt')),
@@ -258,44 +250,30 @@ const discountHandler = event('BtnDiscAmt', 'Button', 'Click', ifBlock([
 )));
 
 const clearBaseHandler = event('BtnClearBase', 'Button', 'Click', ifBlock([
-  { cond: eq(getVar('basePrice'), num(0)), stack: check('Nothing to clear.') }
-], askConfirm('base', 'Clear the selected pizza?', 'Clear pizza')));
+  { cond: eq(getVar('basePrice'), num(0)), stack: check('No pizza picked yet.') }
+], seq(procCall('clearBase'), done('Pizza cleared.'))));
 
 const clearTopHandler = event('BtnClearTop', 'Button', 'Click', ifBlock([
-  { cond: eq(getVar('topPrice'), num(0)), stack: check('Nothing to clear.') }
-], askConfirm('tops', 'Clear the extras?', 'Clear extras')));
+  { cond: eq(getVar('topPrice'), num(0)), stack: check('No extras picked yet.') }
+], seq(procCall('clearTops'), done('Extras cleared.'))));
 
 const clearOrderHandler = event('BtnClearOrder', 'Button', 'Click', ifBlock([
   {
     cond: and(eq(getVar('basePrice'), num(0)), eq(getVar('topPrice'), num(0))),
-    stack: check('The order is already empty.')
+    stack: check('The order is empty already.')
   }
-], askConfirm('order', 'Clear the whole order?', 'Clear order')));
+], seq(procCall('clearOrder'), done('Order cleared. Ready for a new one.'))));
 
 const resetDiscHandler = event('BtnResetDisc', 'Button', 'Click', ifBlock([
-  { cond: not(anyDiscount), stack: check('No discount selected.') }
-], askConfirm('discount', 'Reset the discount?', 'Reset discount')));
+  { cond: not(anyDiscount), stack: check('No discount has been applied yet.') }
+], seq(procCall('resetDiscount'), done('Discount removed.'))));
 
 const clearDataHandler = event('BtnClearData', 'Button', 'Click', ifBlock([
   {
     cond: and(eq(getVar('basePrice'), num(0)), eq(getVar('topPrice'), num(0)), not(anyDiscount)),
-    stack: check('Nothing to clear.')
+    stack: check('Nothing to reset — everything is already clear.')
   }
-], askConfirm('all', 'Reset everything?', 'Clear data')));
-
-const afterChoosing = event('Notifier1', 'Notifier', 'AfterChoosing', seq(
-  ifBlock([{
-    cond: eq(getLocal('choice'), txt('Yes')),
-    stack: ifBlock([
-      { cond: eq(getVar('pendingAction'), txt('base')), stack: seq(procCall('clearBase'), done('Pizza cleared.')) },
-      { cond: eq(getVar('pendingAction'), txt('tops')), stack: seq(procCall('clearTops'), done('Extras cleared.')) },
-      { cond: eq(getVar('pendingAction'), txt('order')), stack: seq(procCall('clearOrder'), done('Order cleared.')) },
-      { cond: eq(getVar('pendingAction'), txt('discount')), stack: seq(procCall('resetDiscount'), done('Discount reset.')) },
-      { cond: eq(getVar('pendingAction'), txt('all')), stack: seq(procCall('clearAll'), done('All data cleared.')) }
-    ])
-  }], check('Cancelled')),
-  setVar('pendingAction', txt(''))
-));
+], seq(procCall('clearAll'), done('All cleared. Start a new order.'))));
 
 /* ----------------------------------------------------------------- output */
 
@@ -305,8 +283,7 @@ const topLevel = [
   clearBase, clearTops, clearOrder, resetDiscount, clearAll,
   ...baseHandlers, ...topHandlers, ...discHandlers,
   totalHandler, discountHandler,
-  clearBaseHandler, clearTopHandler, clearOrderHandler, resetDiscHandler, clearDataHandler,
-  afterChoosing
+  clearBaseHandler, clearTopHandler, clearOrderHandler, resetDiscHandler, clearDataHandler
 ];
 
 let xml = '<xml xmlns="https://developers.google.com/blockly/xml">\n';
