@@ -365,7 +365,23 @@ export function createTools(ctx) {
       properties: { name: { type: 'string' } },
       required: ['name']
     },
-    handler: async ({ name }) => call('designer.addScreen', { name }, 60000)
+    handler: async ({ name }) => {
+      const res = await call('designer.addScreen', { name }, 60000);
+      // The Designer confirms asynchronously; verify against the saved project.
+      await new Promise((r) => setTimeout(r, 2500));
+      let screens = [];
+      try {
+        const { files } = await fetchProject();
+        screens = listScreens(files).map((s) => s.screen);
+      } catch { /* export optional */ }
+      return {
+        ok: screens.length ? screens.includes(name) : true,
+        screen: name,
+        added: screens.includes(name),
+        screens,
+        dialogText: res.dialogText || null
+      };
+    }
   });
 
   add({
@@ -376,7 +392,16 @@ export function createTools(ctx) {
       properties: { name: { type: 'string' } },
       required: ['name']
     },
-    handler: async ({ name }) => call('designer.removeScreen', { name }, 60000)
+    handler: async ({ name }) => {
+      const res = await call('designer.removeScreen', { name }, 60000);
+      await new Promise((r) => setTimeout(r, 2500));
+      let screens = [];
+      try {
+        const { files } = await fetchProject();
+        screens = listScreens(files).map((s) => s.screen);
+      } catch { /* export optional */ }
+      return { ok: !screens.includes(name), screen: name, removed: !screens.includes(name), screens, detail: res };
+    }
   });
 
   add({

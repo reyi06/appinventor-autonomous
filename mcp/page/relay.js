@@ -14,7 +14,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '1.1.3';
+  var VERSION = '1.1.5';
   var WS_URL = window.__AI_RELAY_WS__ || 'ws://127.0.0.1:8766';
   var PREFIX = '[ai-relay]';
 
@@ -131,27 +131,33 @@
 
   function dblclick(el) {
     if (!el) throw new Error('dblclick: element missing');
-    click(el);
     var box = el.getBoundingClientRect();
     var x = box.left + box.width / 2;
     var y = box.top + box.height / 2;
-    var base = { bubbles: true, cancelable: true, composed: true, view: window, clientX: x, clientY: y, button: 0, buttons: 0, detail: 2 };
-    function pointer(type) {
-      if (typeof PointerEvent !== 'function') return null;
-      try {
-        return new PointerEvent(type, Object.assign({ pointerId: 1, pointerType: 'mouse', isPrimary: true }, base));
-      } catch (e) { return null; }
+
+    function mouse(type, detail, buttons) {
+      var base = {
+        bubbles: true, cancelable: true, composed: true, view: window,
+        clientX: x, clientY: y, screenX: x, screenY: y,
+        button: 0, buttons: buttons, detail: detail
+      };
+      if (typeof PointerEvent === 'function' && type !== 'dblclick') {
+        try {
+          el.dispatchEvent(new PointerEvent('pointer' + type, Object.assign({
+            pointerId: 1, pointerType: 'mouse', isPrimary: true
+          }, base)));
+        } catch (e) { /* ignore */ }
+      }
+      el.dispatchEvent(new MouseEvent(type, base));
     }
-    var p = pointer('pointerdown');
-    if (p) el.dispatchEvent(p);
-    el.dispatchEvent(new MouseEvent('mousedown', base));
-    var pu = pointer('pointerup');
-    if (pu) el.dispatchEvent(pu);
-    el.dispatchEvent(new MouseEvent('mouseup', base));
-    var pc = pointer('pointerclick');
-    if (pc) el.dispatchEvent(pc);
-    el.dispatchEvent(new MouseEvent('click', base));
-    el.dispatchEvent(new MouseEvent('dblclick', base));
+
+    mouse('down', 1, 1);
+    mouse('up', 1, 0);
+    mouse('click', 1, 0);
+    mouse('down', 2, 1);
+    mouse('up', 2, 0);
+    mouse('click', 2, 0);
+    mouse('dblclick', 2, 0);
   }
 
   function b64FromArrayBuffer(buf) {
@@ -246,6 +252,7 @@
 
   function ensureDesigner() {
     return new Promise(function (resolve) {
+      dismissDialogs();
       if (viewMode() === 'designer') return resolve(true);
       var tab = byText('div.ode-TextButton', 'Designer') || byTextContains('div.ode-TextButton', 'Designer');
       if (!tab) throw new Error('Designer tab button not found');
@@ -256,12 +263,28 @@
 
   function ensureBlocks() {
     return new Promise(function (resolve) {
+      dismissDialogs();
       if (viewMode() === 'blocks') return resolve(true);
       var tab = byText('div.ode-TextButton', 'Blocks') || byTextContains('div.ode-TextButton', 'Blocks');
       if (!tab) throw new Error('Blocks tab button not found');
       click(tab);
       setTimeout(function () { resolve(viewMode() === 'blocks'); }, 1200);
     });
+  }
+
+  /** Close leftover modal dialogs (e.g. a previous build result) that block clicks. */
+  function dismissDialogs() {
+    var dialogs = document.querySelectorAll('.ode-DialogBox');
+    for (var i = 0; i < dialogs.length; i++) {
+      var buttons = dialogs[i].querySelectorAll('button, .ode-TextButton, .gwt-Button');
+      for (var j = 0; j < buttons.length; j++) {
+        var label = buttons[j].textContent.trim();
+        if (/^(Dismiss|Close|Cancel|OK)$/i.test(label)) {
+          try { click(buttons[j]); } catch (e) { /* ignore */ }
+          break;
+        }
+      }
+    }
   }
 
   /* ------------------------------------------------------ component select */
@@ -586,46 +609,45 @@
       click(ok);
       return sleep(900).then(function () {
         var dlg = document.querySelector('.ode-DialogBox');
+        var dialogText = null;
         if (dlg) {
-          var text = dlg.innerText.replace(/\s+/g, ' ');
-          if (/already|exists|invalid/i.test(text)) throw new Error('Screen add failed: ' + text.slice(0, 200));
+          dialogText = dlg.innerText.replace(/\s+/g, ' ');
+          try { dismissDialogs(); } catch (e) { /* ignore */ }
+          if (/already|exists|invalid/i.test(dialogText)) {
+            throw new Error('Screen add failed: ' + dialogText.slice(0, 200));
+          }
         }
-        var screens = [];
-        var items = document.querySelectorAll('.gwt-TreeItem');
-        for (var i = 0; i < items.length; i++) screens.push(items[i].textContent.trim());
-        return { screen: name, added: screens.indexOf(name) !== -1, screens: screens };
+        return { screen: name, dialogText: dialogText, verified: false, note: 'Confirm with ai_screens_list' };
       });
     });
   };
 
   H['designer.removeScreen'] = function (p) {
     var name = p && p.name;
+    if (!name) throw new Error('name required');
     return ensureDesigner().then(function () {
-      // select the screen in the screen list
-      var items = document.querySelectorAll('.gwt-TreeItem');
-      for (var i = 0; i < items.length; i++) {
-        if (items[i].textContent.trim() === name) { click(items[i]); break; }
+      var current = null;
+      try {
+        var inst = instances();
+        Object.keys(inst).forEach(function (k) {
+          if (inst[k] && inst[k].typeName === 'Form') current = inst[k].name;
+        });
+      } catch (e) { /* ignore */ }
+      if (current && current !== name) {
+        throw new Error('Cannot remove screen "' + name + '": only the screen currently open in the Designer can be removed (open: "' + current + '").');
       }
-    }).then(function () { return sleep(400); })
-      .then(function () {
-        var groups = document.querySelectorAll('.ode-SourceStructureExplorer .ode-PanelButtons');
-        var target = null;
-        for (var g = 0; g < groups.length; g++) {
-          var btn = byText('.ode-TextButton', 'Delete', groups[g]);
-          if (btn && btn.className.indexOf('disabled') === -1) { target = btn; break; }
-        }
-        if (!target) throw new Error('Enabled Delete button not found (select the screen first)');
-        click(target);
-        return sleep(500);
-      })
-      .then(function () {
-        var dlg = document.querySelector('.ode-DialogBox');
-        if (dlg) {
-          var yes = byText('button', 'OK', dlg) || byText('div.ode-TextButton', 'OK', dlg) || byText('button', 'Yes', dlg);
-          if (yes) click(yes);
-        }
-        return { screen: name, removed: true };
-      });
+      var btn = byText('div.ode-TextButton', 'Remove Screen') || byTextContains('div.ode-TextButton', 'Remove Screen');
+      if (!btn) throw new Error('Remove Screen button not found');
+      click(btn);
+      return waitFor(function () { return document.querySelector('.ode-DialogBox'); }, 6000).catch(function () { return null; });
+    }).then(function (dialog) {
+      if (dialog) {
+        var yes = dialogButton(dialog, /^(OK|Ok|Yes|Remove|Delete)$/);
+        if (yes) click(yes);
+        return sleep(900).then(function () { try { dismissDialogs(); } catch (e) { /* ignore */ } return { screen: name, requested: true }; });
+      }
+      return { screen: name, requested: true, note: 'No confirmation dialog appeared' };
+    });
   };
 
   /* --- components --- */
@@ -932,6 +954,11 @@
           }
           return null;
         }, 180000, 500);
+      })
+      .then(function (res) {
+        // The success dialog is modal; close it so later designer edits are not blocked.
+        try { dismissDialogs(); } catch (e) { /* ignore */ }
+        return res;
       });
   };
 
