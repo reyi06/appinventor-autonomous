@@ -15,10 +15,11 @@
   'use strict';
 
   var VERSION = '1.3.3';
+  var BUILD = '2026-11-08.1'; // implementation revision: changing this replaces a live instance
   var WS_URL = window.__AI_RELAY_WS__ || 'ws://127.0.0.1:8766';
   var PREFIX = '[ai-relay]';
 
-  if (window.__aiRelay && window.__aiRelay.version === VERSION) {
+  if (window.__aiRelay && window.__aiRelay.build === BUILD) {
     try { window.__aiRelay.reconnect(); } catch (e) { /* ignore */ }
     console.log(PREFIX, 'already loaded, reconnecting');
     return;
@@ -69,6 +70,31 @@
       if (list[i].textContent.indexOf(txt) !== -1) return list[i];
     }
     return null;
+  }
+
+  /**
+   * Toolbar buttons changed shape in newer App Inventor builds: the view tabs
+   * are .ode-ProjectListButton and several commands are Material icon buttons
+   * whose label lives in `title` rather than in the text. Match both.
+   */
+  function findButton(label, root) {
+    var candidates = (root || document).querySelectorAll('.ode-ProjectListButton, .ode-TextButton, button');
+    for (var i = 0; i < candidates.length; i++) {
+      var el = candidates[i];
+      if (el.offsetParent === null) continue;
+      var face = el.querySelector('.html-face');
+      var text = (face ? face.textContent : el.textContent).trim();
+      if (text === label) return el;
+      var title = el.getAttribute('title') || el.getAttribute('aria-label') || '';
+      if (title === label) return el;
+      if (title.indexOf(label) === 0) return el;
+    }
+    return null;
+  }
+
+  function isActiveTab(el) {
+    // App Inventor disables the tab you are already on.
+    return !!el && /up-disabled|ode-ProjectListButton-down|ode-TextButton-down/.test(el.className);
   }
 
   function fire(el, type, opts) {
@@ -290,20 +316,13 @@
   }
 
   function viewMode() {
-    // App Inventor disables the tab button of the view you are already in.
-    var tabs = document.querySelectorAll('div.ode-TextButton');
-    var designerActive = false;
-    var blocksActive = false;
-    for (var i = 0; i < tabs.length; i++) {
-      var label = tabs[i].textContent.trim();
-      if (label !== 'Designer' && label !== 'Blocks') continue;
-      var disabled = /up-disabled|ode-TextButton-down/.test(tabs[i].className);
-      if (label === 'Designer' && disabled) designerActive = true;
-      if (label === 'Blocks' && disabled) blocksActive = true;
-    }
+    var designerTab = findButton('Designer');
+    var blocksTab = findButton('Blocks');
+    var designerActive = isActiveTab(designerTab);
+    var blocksActive = isActiveTab(blocksTab);
     if (designerActive && !blocksActive) return 'designer';
     if (blocksActive && !designerActive) return 'blocks';
-    if (document.querySelector('.blocklyWorkspace')) return 'blocks';
+    if (document.querySelector('.blocklyWorkspace') && !document.querySelector('.ode-SimpleFormDesigner')) return 'blocks';
     if (document.querySelector('.ode-SimpleFormDesigner')) return 'designer';
     return 'unknown';
   }
@@ -312,7 +331,7 @@
     return new Promise(function (resolve) {
       dismissDialogs();
       if (viewMode() === 'designer') return resolve(true);
-      var tab = byText('div.ode-TextButton', 'Designer') || byTextContains('div.ode-TextButton', 'Designer');
+      var tab = findButton('Designer');
       if (!tab) throw new Error('Designer tab button not found');
       click(tab);
       setTimeout(function () { resolve(viewMode() === 'designer'); }, 900);
@@ -323,7 +342,7 @@
     return new Promise(function (resolve) {
       dismissDialogs();
       if (viewMode() === 'blocks') return resolve(true);
-      var tab = byText('div.ode-TextButton', 'Blocks') || byTextContains('div.ode-TextButton', 'Blocks');
+      var tab = findButton('Blocks');
       if (!tab) throw new Error('Blocks tab button not found');
       click(tab);
       setTimeout(function () { resolve(viewMode() === 'blocks'); }, 1200);
@@ -859,7 +878,7 @@
   H['designer.addScreen'] = function (p) {
     var name = (p && p.name) || 'Screen';
     return ensureDesigner().then(function () {
-      var btn = byText('div.ode-TextButton', 'Add Screen ...') || byTextContains('div.ode-TextButton', 'Add Screen');
+      var btn = findButton('Add Screen ...') || findButton('Add Screen');
       if (!btn) throw new Error('Add Screen button not found');
       click(btn);
     }).then(function () {
@@ -902,7 +921,7 @@
       if (current && current !== name) {
         throw new Error('Cannot remove screen "' + name + '": only the screen currently open in the Designer can be removed (open: "' + current + '"). Use ai_screen_switch first.');
       }
-      var btn = byText('div.ode-TextButton', 'Remove Screen') || byTextContains('div.ode-TextButton', 'Remove Screen');
+      var btn = findButton('Remove Screen');
       if (!btn) throw new Error('Remove Screen button not found');
       click(btn);
       return waitFor(function () { return document.querySelector('.ode-DialogBox'); }, 8000);
@@ -1407,6 +1426,7 @@
 
   window.__aiRelay = {
     version: VERSION,
+    build: BUILD,
     reconnect: connect,
     disconnect: function () {
       try {

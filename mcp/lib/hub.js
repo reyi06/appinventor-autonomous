@@ -4,6 +4,18 @@ import { WebSocketServer } from 'ws';
  * WebSocket hub: accepts relay connections from App Inventor editor tabs and
  * correlates tool calls with their responses.
  */
+/** Compare dotted versions: true when a >= b. */
+function versionAtLeast(a, b) {
+  const pa = String(a || '').split('.').map((n) => parseInt(n, 10) || 0);
+  const pb = String(b || '').split('.').map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length, 3); i++) {
+    const x = pa[i] || 0;
+    const y = pb[i] || 0;
+    if (x !== y) return x > y;
+  }
+  return true;
+}
+
 export function createHub(httpServer, { log = () => {}, remoteFallback = null, expectedRelayVersion = null } = {}) {
   const clients = new Map(); // ws -> meta
   const pending = new Map(); // id -> { resolve, reject, timer, tool }
@@ -41,15 +53,15 @@ export function createHub(httpServer, { log = () => {}, remoteFallback = null, e
         return;
       }
       if (msg.type === 'hello') {
-        // Refuse a relay that is not the build this server ships. A stale or
-        // foreign script (for example one served by a process squatting the
-        // port) must never drive a signed-in editor session.
-        if (expectedRelayVersion && msg.version !== expectedRelayVersion) {
-          log(`rejecting relay ${meta.id}: version ${msg.version} != expected ${expectedRelayVersion}`);
+        // Reject a relay OLDER than the script this server ships (a stale page
+        // or a foreign script). A newer relay is still ours: relay.js is served
+        // from disk per request, so bumping it does not require a restart.
+        if (expectedRelayVersion && !versionAtLeast(msg.version, expectedRelayVersion)) {
+          log(`rejecting relay ${meta.id}: version ${msg.version} is older than ${expectedRelayVersion}`);
           try {
             ws.send(JSON.stringify({
               type: 'reject',
-              reason: `relay version ${msg.version} does not match server ${expectedRelayVersion}`
+              reason: `relay version ${msg.version} is older than ${expectedRelayVersion}; reload the App Inventor tab`
             }));
             ws.close();
           } catch { /* ignore */ }

@@ -241,3 +241,22 @@ cancelable)` raises `AfterChoosing`.
 
 **Fix** Match the input names per block type (see `docs/blocks.md`).
 
+
+---
+
+## Designer/Blocks tabs not found, or \"Add Screen button not found\"
+
+**Symptom** `Designer tab button not found` on any designer edit, while the page clearly
+shows the tabs.
+
+**Cause** Newer App Inventor builds restyled the toolbar: the view tabs are
+`.ode-ProjectListButton` (not `.ode-TextButton`) and several commands became Material
+icon buttons whose label lives in the `title` attribute (`title="Add Screen ..."`), with
+the visible text being an icon ligature (`add`, `remove`).
+
+**Fix** Match on text **or** title across `.ode-ProjectListButton, .ode-TextButton, button`
+(relay `findButton`). The active tab is still the one carrying `-up-disabled`.
+
+**Note** `VERSION` is the protocol/compatibility version the server pins; `BUILD` is the
+implementation revision. Changing `BUILD` replaces a live relay instance on re-inject;
+changing `VERSION` requires a server restart (the pin rejects older relays).
