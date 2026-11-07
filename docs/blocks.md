@@ -161,6 +161,10 @@ the dialog is what tells the handler which routine to run. Passing four argument
 `ShowMessageDialog` silently does nothing useful — it takes three, and it never raises the
 event, so a confirmation flow built on it will never run.
 
+`ShowChooseDialog`'s last parameter is **not** "is this dialog dismissable" — it is "add an
+extra CANCEL button". Passing `(…, "Yes", "Cancel", true)` therefore renders
+`YES / CANCEL / CANCEL`. Pass `false` and supply the two buttons yourself.
+
 
 ```xml
 <block type="procedures_defreturn" id="p1" x="500" y="20">

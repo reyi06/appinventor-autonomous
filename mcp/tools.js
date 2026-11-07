@@ -1288,6 +1288,80 @@ export function createTools(ctx) {
   });
 
   add({
+    name: 'ai_project_properties',
+    description: 'Read or change project-level properties (youngandroidproject/project.properties). The theme drives the whole app look: "Classic" (legacy Holo widgets), "AppTheme.Light.DarkActionBar" (Device Default / Material), "AppTheme.Light" (black title text), "AppTheme" (dark).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        set: {
+          type: 'object',
+          description: 'Properties to set, e.g. { "theme": "AppTheme.Light.DarkActionBar", "actionbar": "True" }'
+        }
+      }
+    },
+    handler: async ({ set } = {}) => {
+      const { files, projectId, projectName } = await fetchProject();
+      const propPath = 'youngandroidproject/project.properties';
+      const propBuf = files.get(propPath);
+      if (!propBuf) throw new Error('project.properties not found in the export');
+
+      const props = parseProperties(propBuf.toString('utf8'));
+      const before = { ...props };
+      const changes = {};
+
+      if (set && typeof set === 'object' && Object.keys(set).length) {
+        for (const [k, v] of Object.entries(set)) props[k] = String(v);
+
+        // A non-Classic theme requires the action bar; Classic disables it.
+        if (set.theme) props.actionbar = set.theme === 'Classic' ? 'False' : 'True';
+
+        await call('project.uploadAsset', {
+          name: 'project.properties',
+          base64: Buffer.from(serializeProperties(props)).toString('base64'),
+          mime: 'text/plain',
+          path: propPath
+        }, 60000);
+
+        // Keep each screen's Theme property in step, so the designer and the
+        // build agree and the next autosave cannot revert the change.
+        if (set.theme) {
+          for (const [p, buf] of files) {
+            if (!p.endsWith('.scm')) continue;
+            const text = buf.toString('utf8');
+            const patched = text.includes('"Theme"')
+              ? text.replace(/"Theme":"[^"]*"/, `"Theme":"${set.theme}"`)
+              : text.replace(/"\$Type":"Form",/, `"$Type":"Form","Theme":"${set.theme}",`);
+            if (patched === text) continue;
+            await call('project.uploadAsset', {
+              name: p.split('/').pop(),
+              base64: Buffer.from(patched).toString('base64'),
+              mime: 'text/plain',
+              path: p
+            }, 60000);
+          }
+        }
+
+        for (const k of Object.keys(set)) {
+          if (before[k] !== props[k]) changes[k] = { from: before[k] ?? null, to: props[k] };
+        }
+      }
+
+      return {
+        ok: true,
+        projectName,
+        projectId,
+        theme: props.theme || '(default)',
+        properties: props,
+        changes,
+        reloadRequired: Object.keys(changes).length > 0,
+        note: Object.keys(changes).length
+          ? 'Project files updated. Reload the App Inventor tab, then rebuild for the change to reach the APK.'
+          : 'Read only.'
+      };
+    }
+  });
+
+  add({
     name: 'ai_download',
     description: 'Download a URL (for example a build link) to a local file.',
     inputSchema: {

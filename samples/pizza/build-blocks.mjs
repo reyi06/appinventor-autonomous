@@ -98,7 +98,9 @@ const showDialog = (message, title, button = 'OK') =>
   callMethod('Notifier1', 'Notifier', 'ShowMessageDialog', [txt(message), txt(title), txt(button)]);
 const askConfirm = (action, message, title) => seq(
   setVar('pendingAction', txt(action)),
-  callMethod('Notifier1', 'Notifier', 'ShowChooseDialog', [txt(message), txt(title), txt('Yes'), txt('Cancel'), bool(true)])
+  // cancelable=false: pass just the two buttons. cancelable=true would add a
+  // THIRD "Cancel" button on top of them (Yes / Cancel / Cancel).
+  callMethod('Notifier1', 'Notifier', 'ShowChooseDialog', [txt(message), txt(title), txt('Yes'), txt('Cancel'), bool(false)])
 );
 const done = (message) => showDialog(message, 'Done');
 const check = (message) => showDialog(message, 'Check input');

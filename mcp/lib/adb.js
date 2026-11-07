@@ -178,7 +178,13 @@ export function visibleTexts(nodes) {
 }
 
 export async function tapText(serial, text, nodes, occurrence = 0) {
-  const hits = nodes.filter((n) => n.text === text);
+  let hits = nodes.filter((n) => n.text === text);
+  if (hits.length <= occurrence) {
+    // Material themes render dialog buttons in upper case, so fall back to a
+    // case-insensitive match before giving up.
+    const lower = String(text).toLowerCase();
+    hits = nodes.filter((n) => String(n.text).toLowerCase() === lower);
+  }
   const node = hits[occurrence];
   if (!node || !node.bounds) throw new Error(`Text not found on screen: "${text}"`);
   await adb(serial, ['shell', 'input', 'tap', String(node.bounds.cx), String(node.bounds.cy)]);
@@ -212,11 +218,14 @@ export async function readCrashes(serial) {
 /** Wait until a target text appears in a fresh UI dump, or time out. */
 export async function waitForText(serial, text, timeoutMs = 15000) {
   const started = Date.now();
+  const lower = String(text).toLowerCase();
   let last = [];
   while (Date.now() - started < timeoutMs) {
     const nodes = parseUi(await dumpUi(serial));
     last = visibleTexts(nodes);
-    if (last.includes(text)) return { found: true, nodes, texts: last };
+    if (last.includes(text) || last.some((t) => String(t).toLowerCase() === lower)) {
+      return { found: true, nodes, texts: last };
+    }
     await new Promise((r) => setTimeout(r, 800));
   }
   return { found: false, nodes: [], texts: last };

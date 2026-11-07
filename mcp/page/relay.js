@@ -14,7 +14,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '1.3.2';
+  var VERSION = '1.3.3';
   var WS_URL = window.__AI_RELAY_WS__ || 'ws://127.0.0.1:8766';
   var PREFIX = '[ai-relay]';
 
@@ -270,7 +270,23 @@
     }
     var a = String(actual == null ? '' : actual).trim().replace(/\.+$/, '');
     var b = String(expected == null ? '' : expected).trim().replace(/\.+$/, '');
-    return a === b;
+    if (a === b) return true;
+
+    // The length editor summarises values: "56 pixels", "50 %", "-1050 pixels"
+    var px = a.match(/^(-?\d+)\s*pixels?$/i);
+    if (px) {
+      var n = parseInt(px[1], 10);
+      if (b === String(n)) return true;
+      // percent values are stored as -1000 - percent but summarised as "... %"
+      var pct = b.match(/^-(\d+)$/);
+      if (pct && (-1000 - parseInt(pct[1], 10)) === n) return true;
+    }
+    var pc = a.match(/^(-?\d+)\s*%$/);
+    if (pc) {
+      var p = parseInt(pc[1], 10);
+      if (b === String(-1000 - p)) return true;
+    }
+    return false;
   }
 
   function viewMode() {
