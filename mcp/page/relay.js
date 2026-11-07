@@ -14,7 +14,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '1.2.5';
+  var VERSION = '1.3.1';
   var WS_URL = window.__AI_RELAY_WS__ || 'ws://127.0.0.1:8766';
   var PREFIX = '[ai-relay]';
 
@@ -229,6 +229,48 @@
     if (el && el.textContent.trim()) return el.textContent.trim();
     var tree = document.querySelector('.gwt-TreeItem-selected');
     return tree ? tree.textContent.trim() : null;
+  }
+
+  /**
+   * The properties panel rebinds asynchronously after a tree click: the header
+   * can briefly still name the previous component while the rows are already
+   * (or not yet) swapped. Writing during that window lands on the WRONG
+   * component, so every write waits until the panel names the target.
+   */
+  function waitForSelection(name) {
+    return waitFor(function () { return selectedComponentName() === name; }, 6000)
+      .then(function () { return sleep(180); })
+      .catch(function () {
+        throw new Error('Properties panel did not switch to "' + name + '" (still showing "' +
+          selectedComponentName() + '"); refusing to write');
+      });
+  }
+
+  /** Current display value of a property row, for read-back verification. */
+  function readRowValue(row) {
+    var checkbox = row.querySelector('input[type="checkbox"]');
+    if (checkbox) return checkbox.checked;
+    var select = row.querySelector('select');
+    if (select) {
+      var opt = select.options[select.selectedIndex];
+      return opt ? opt.text : null;
+    }
+    var area = row.querySelector('textarea');
+    if (area) return area.value;
+    var input = row.querySelector('input.ode-PropertyEditor, input.ode-TextPropertyEditor');
+    if (input) return input.value;
+    var choice = row.querySelector('.ode-ColorChoicePropertyEditor, .ode-ChoicePropertyEditor');
+    if (choice) return choice.textContent.trim();
+    return null;
+  }
+
+  function sameValue(actual, expected) {
+    if (typeof actual === 'boolean') {
+      return actual === (expected === true || expected === 'True' || expected === 'true' || expected === 1 || expected === '1');
+    }
+    var a = String(actual == null ? '' : actual).trim().replace(/\.+$/, '');
+    var b = String(expected == null ? '' : expected).trim().replace(/\.+$/, '');
+    return a === b;
   }
 
   function viewMode() {
@@ -601,7 +643,17 @@
     var checkbox = row.querySelector('input[type="checkbox"]');
     if (checkbox) {
       var want = value === true || value === 'true' || value === 'True' || value === 1 || value === '1';
-      if (checkbox.checked !== want) click(checkbox);
+      if (checkbox.checked !== want) {
+        // An untrusted click event does not toggle a checkbox; the native
+        // .click() method does, and GWT listens for the resulting change event.
+        try { checkbox.click(); } catch (e) { /* ignore */ }
+        if (checkbox.checked !== want) {
+          checkbox.checked = want;
+          fire(checkbox, 'click');
+          fire(checkbox, 'change');
+        }
+        fire(checkbox, 'input');
+      }
       return Promise.resolve({ kind: 'checkbox', value: checkbox.checked });
     }
     var select = row.querySelector('select.gwt-ListBox, select');
@@ -936,7 +988,7 @@
       .then(function () { return selectComponent(p.from, true); })
       .then(function (sel) {
         if (sel.selected !== p.from) throw new Error('Could not select "' + p.from + '" (selected "' + sel.selected + '")');
-        return sleep(300);
+        return waitForSelection(p.from);
       })
       .then(function () {
         var groups = document.querySelectorAll('.ode-SourceStructureExplorer .ode-PanelButtons');
@@ -1009,7 +1061,7 @@
     if (!p || !p.component) throw new Error('component required');
     return ensureDesigner()
       .then(function () { return selectComponent(p.component); })
-      .then(function () { return sleep(400); })
+      .then(function () { return waitForSelection(p.component); })
       .then(function () {
         var rows = document.querySelectorAll('.ode-PropertyRow');
         var out = {};
@@ -1041,7 +1093,7 @@
         if (sel.selected && sel.selected !== p.component) {
           throw new Error('Could not select "' + p.component + '" (selected "' + sel.selected + '")');
         }
-        return sleep(350);
+        return waitForSelection(p.component);
       })
       .then(function () {
         var row = propertyRow(p.property);
@@ -1049,7 +1101,13 @@
           ' (properties are grouped; select the component in the Designer first)');
         return Promise.resolve(setPropertyOnRow(row, p.value)).then(function (result) {
           return sleep(250).then(function () {
-            return { component: p.component, property: p.property, written: p.value, control: result };
+            var row2 = propertyRow(p.property);
+            var actual = row2 ? readRowValue(row2) : null;
+            if (!sameValue(actual, p.value)) {
+              throw new Error('Write did not stick: ' + p.component + '.' + p.property +
+                ' is "' + actual + '", expected "' + p.value + '"');
+            }
+            return { component: p.component, property: p.property, written: p.value, control: result, verified: true };
           });
         });
       });
