@@ -104,7 +104,10 @@ reports destructive findings without touching them.
   { "action": "expectText", "text": "0" },
   { "action": "tapText", "text": "Tap" },
   { "action": "expectText", "text": "1" },
-  { "action": "tapText", "text": "Reset" },
+  { "action": "tapEditText", "index": 0 },
+  { "action": "typeText", "text": "Pizza" },
+  { "action": "clearText", "count": 8 },
+  { "action": "tapText", "text": "ADD" },
   { "action": "expectNotText", "text": "1" },
   { "action": "back" },
   { "action": "sleep", "ms": 800 },
@@ -112,9 +115,12 @@ reports destructive findings without touching them.
 ]
 ```
 
-`tapText` taps the centre of the matching bounds from a fresh `uiautomator` dump;
-`expectText` re-dumps before asserting. The runner stops at the first failure and still
-reads logcat, so a crash is reported alongside the failing step.
+`tapText` taps the centre of the matching bounds from a fresh `uiautomator` dump and falls
+back to a case-insensitive match (Material themes upper-case dialog buttons);
+`tapEditText` taps the Nth text field so `typeText` can drive it; `typeText` sends
+`input text` (a leading `-` is sent as a key event); `clearText` moves to the end and sends
+backspaces. `expectText` re-dumps before asserting. The runner stops at the first failure
+and still reads logcat, so a crash is reported alongside the failing step.
 
 ## Escape hatch
 

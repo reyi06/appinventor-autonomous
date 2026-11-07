@@ -279,6 +279,30 @@ export async function runScenario(serial, pkg, scenario) {
         if (texts.includes(step.text)) throw new Error(`Unexpected text still present: ${step.text}`);
       } else if (step.action === 'sleep') {
         await new Promise((r) => setTimeout(r, step.ms || 1000));
+      } else if (step.action === 'tapEditText') {
+        const nodes = parseUi(await dumpUi(serial));
+        const edits = nodes.filter((n) => /EditText|AutoComplete/i.test(n.cls || ''));
+        const node = edits[step.index || 0];
+        if (!node || !node.bounds) throw new Error(`EditText #${step.index || 0} not found (${edits.length} on screen)`);
+        await adb(serial, ['shell', 'input', 'tap', String(node.bounds.cx), String(node.bounds.cy)]);
+        await new Promise((r) => setTimeout(r, 700));
+      } else if (step.action === 'typeText') {
+        let value = String(step.text);
+        // adb `input text` cannot take a leading '-', so send it as a key event
+        if (value.startsWith('-')) {
+          await adb(serial, ['shell', 'input', 'keyevent', '69']);
+          value = value.slice(1);
+        }
+        const escaped = value.replace(/ /g, '%s');
+        if (escaped) await adb(serial, ['shell', 'input', 'text', escaped]);
+        await new Promise((r) => setTimeout(r, 700));
+      } else if (step.action === 'clearText') {
+        await adb(serial, ['shell', 'input', 'keyevent', 'KEYCODE_MOVE_END']);
+        const presses = step.count || 24;
+        for (let i = 0; i < presses; i++) {
+          await adb(serial, ['shell', 'input', 'keyevent', 'KEYCODE_DEL']);
+        }
+        await new Promise((r) => setTimeout(r, 400));
       } else if (step.action === 'back') {
         await adb(serial, ['shell', 'input', 'keyevent', 'KEYCODE_BACK']);
         await new Promise((r) => setTimeout(r, 900));
