@@ -1,8 +1,7 @@
 {
   "name": "appinventor-autonomous",
-  "version": "1.0.0",
-  "private": true,
-  "description": "Autonomous MIT App Inventor control plane: MCP server + in-page relay for Designer, Blockly, AIA export, APK build",
+  "version": "2.0.0",
+  "description": "MCP server that drives MIT App Inventor: designer, Blockly, .aia export, APK build and emulator testing.",
   "type": "module",
   "main": "mcp/server.js",
   "bin": {
@@ -13,20 +12,39 @@
     "mcp/",
     "extension/",
     "docs/",
-    "skills/",
-    ".opencode/skills/",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "SECURITY.md"
   ],
   "scripts": {
     "start": "node mcp/server.js",
     "selftest": "node tests/mcp-smoke.mjs",
-    "test": "node --test tests/"
+    "corpus": "node tests/corpus.mjs",
+    "test": "node tests/mcp-smoke.mjs && node tests/corpus.mjs"
   },
   "dependencies": {
     "ws": "^8.18.0"
   },
   "engines": {
-    "node": ">=18"
-  }
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "app-inventor",
+    "blockly",
+    "android",
+    "apk",
+    "ai2",
+    "no-code"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/OWNER/appinventor-autonomous.git"
+  },
+  "bugs": {
+    "url": "https://github.com/OWNER/appinventor-autonomous/issues"
+  },
+  "homepage": "https://github.com/OWNER/appinventor-autonomous#readme"
 }

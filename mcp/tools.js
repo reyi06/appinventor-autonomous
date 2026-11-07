@@ -5,6 +5,7 @@ import * as adb from './lib/adb.js';
 import { normalizeScreen, flatten, toAppInventorColor } from './layout/ir.js';
 import { planScreen, planTheme, missingAssets } from './layout/plan.js';
 import { applyPlan } from './layout/apply.js';
+import { scanBky, undeclaredGlobals, globalsMissingPrefix } from './lib/bky.js';
 import {
   parseScm, serializeScm, parseProperties, serializeProperties,
   componentNode, flattenComponents, findComponent, listScreens, sourceDir
@@ -782,8 +783,10 @@ export function createTools(ctx) {
       } catch {
         /* relay offline: type checks skipped */
       }
+
       const issues = [];
       const summary = [];
+      const scanNotes = [];
 
       // The Android launcher is always Screen1; a project whose Screen1 is empty
       // builds fine and then shows a blank app.
@@ -862,35 +865,25 @@ export function createTools(ctx) {
 
         const bky = files.get(s.path.replace(/\.scm$/, '.bky'));
         const bx = bky ? bky.toString('utf8') : '';
-        const blockCount = (bx.match(/<block /g) || []).length;
+        const scan = scanBky(bx);
+        const blockCount = scan.blockCount;
 
-        // blocks referencing missing instances
-        const refs = [...bx.matchAll(/instance_name="([^"]+)"/g)].map((m) => m[1]);
-        const missing = [...new Set(refs.filter((r) => r && !names.has(r)))];
-        for (const m of missing) {
-          issues.push({ severity: 'error', screen: s.screen, kind: 'missing_component_reference', instance: m });
-        }
+        if (scan.legacy) {
+          scanNotes.push(`${s.screen}: legacy pre-2018 block format; block-level checks skipped (the editor upgrades it on import)`);
+        } else {
+          // Blocks referencing components that no longer exist.
+          const missing = scan.instanceRefs.filter((r) => r && !names.has(r));
+          for (const m of missing) {
+            issues.push({ severity: 'error', screen: s.screen, kind: 'missing_component_reference', instance: m });
+          }
 
-        // variable scoping: AI compiles `lexical_variable_*` with no prefix as a
-        // LOCAL, so a global read/write without the "global " prefix throws
-        // "unbound location $name" at runtime.
-        const globals = new Set(
-          [...bx.matchAll(/<block[^>]*type="global_declaration"[^>]*>[\s\S]*?<field name="NAME">([^<]*)<\/field>/g)].map((m) => m[1])
-        );
-        const locals = new Set(
-          [...bx.matchAll(/<block[^>]*type="local_declaration_(?:statement|expression)"[^>]*>[\s\S]*?<field name="VAR">([^<]*)<\/field>/g)].map((m) => m[1])
-        );
-        const varRefs = [...bx.matchAll(/<field name="VAR">([^<]*)<\/field>/g)].map((m) => m[1]);
-        const seenVar = new Set();
-        for (const v of varRefs) {
-          if (seenVar.has(v)) continue;
-          seenVar.add(v);
-          if (v.startsWith('global ')) {
-            const bare = v.slice('global '.length);
-            if (!globals.has(bare)) {
-              issues.push({ severity: 'error', screen: s.screen, kind: 'missing_global_declaration', variable: bare });
-            }
-          } else if (globals.has(v) && !locals.has(v)) {
+          // Variable scoping: AI compiles `lexical_variable_*` with no prefix as a
+          // LOCAL, so a global read/write without "global " throws
+          // "unbound location $name" at runtime.
+          for (const bare of undeclaredGlobals(scan)) {
+            issues.push({ severity: 'error', screen: s.screen, kind: 'missing_global_declaration', variable: bare });
+          }
+          for (const v of globalsMissingPrefix(scan)) {
             issues.push({
               severity: 'error',
               screen: s.screen,
@@ -899,18 +892,13 @@ export function createTools(ctx) {
               fix: `rename reference "${v}" to "global ${v}"`
             });
           }
+
+          for (const handler of scan.duplicateHandlers) {
+            issues.push({ severity: 'error', screen: s.screen, kind: 'duplicate_event_handler', handler });
+          }
         }
 
-        // duplicate event handlers
-        const evts = [...bx.matchAll(/<block type="component_event"[^>]*>[\s\S]*?<mutation[^>]*instance_name="([^"]*)"[^>]*event_name="([^"]*)"/g)]
-          .map((m) => `${m[1]}.${m[2]}`);
-        const seen = new Set();
-        for (const e of evts) {
-          if (seen.has(e)) issues.push({ severity: 'error', screen: s.screen, kind: 'duplicate_event_handler', handler: e });
-          seen.add(e);
-        }
-
-        summary.push({ screen: s.screen, components: flat.length, blocks: blockCount, events: evts.length });
+        summary.push({ screen: s.screen, components: flat.length, blocks: blockCount, events: scan.events.length });
       }
 
       return {
@@ -919,7 +907,10 @@ export function createTools(ctx) {
         screens: summary,
         issueCount: issues.length,
         issues,
-        notes: catalog ? [] : ['Live editor catalog unavailable, component-type checks skipped.']
+        notes: [
+          ...(catalog ? [] : ['Live editor catalog unavailable, component-type checks skipped.']),
+          ...scanNotes
+        ]
       };
     }
   });

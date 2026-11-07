@@ -5,11 +5,19 @@ const SCM_FOOTER = '\n|#';
 
 /** Parse a `.scm` designer file into its JSON form document. */
 export function parseScm(text) {
-  const start = text.indexOf('$JSON\n');
-  if (start < 0) throw new Error('Not an .scm file: $JSON marker missing');
-  const body = text.slice(start + '$JSON\n'.length);
+  // Tolerate CRLF/CR and a BOM: .scm files travel through Windows tooling and
+  // are sometimes extracted from an .aia by hand.
+  const normalized = String(text)
+    .replace(/^\uFEFF/, '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n');
+
+  const marker = normalized.indexOf('$JSON');
+  if (marker < 0) throw new Error('Not an .scm file: $JSON marker missing');
+
+  const body = normalized.slice(marker + '$JSON'.length).replace(/^\s+/, '');
   const end = body.lastIndexOf('|#');
-  const json = end >= 0 ? body.slice(0, end) : body;
+  const json = (end >= 0 ? body.slice(0, end) : body).trim();
   return JSON.parse(json);
 }
 

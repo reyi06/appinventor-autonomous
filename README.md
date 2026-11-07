@@ -10,8 +10,8 @@ endpoints) and is then read back and verified.
 
 ## Status
 
-Verified end to end on `ai2a.appinventor.mit.edu` (Form `$Version 32`), see
-[samples/TapCounter.aia](samples/TapCounter.aia):
+Verified end to end on `ai2a.appinventor.mit.edu` (Form `$Version 32`), in both Classic and
+Neo UI modes, with the sample in [samples/pizza](samples/pizza):
 
 | Capability | State |
 | --- | --- |
@@ -33,39 +33,77 @@ Verified end to end on `ai2a.appinventor.mit.edu` (Form `$Version 32`), see
 | Self-test against the live editor | works (`ai_selftest`) |
 | Colour/typeface/alignment pickers | not automatable — reported, never faked |
 
+## Install
+
+```bash
+git clone https://github.com/OWNER/appinventor-autonomous.git
+cd appinventor-autonomous
+npm ci
+```
+
+Add it to your MCP client (Claude Code, Codex, Cursor, OpenCode — anything that speaks MCP):
+
+```json
+{
+  "mcpServers": {
+    "appinventor": {
+      "command": "node",
+      "args": ["/absolute/path/to/appinventor-autonomous/mcp/server.js"],
+      "env": { "APPINVENTOR_MCP_PORT": "8766" }
+    }
+  }
+}
+```
+
+`npx appinventor-mcp --print-config` prints the same block with absolute paths filled in.
+
+Requirements: **Node 20+**, a Chromium browser, and an App Inventor account. Android builds
+and device testing additionally need the Android SDK (`adb`, plus `build-tools` for `aapt`).
+
 ## Quick start
 
-1. **Run the server.** It is already registered in `opencode.json` as the `appinventor`
-   MCP server:
-
-   ```json
-   { "command": ["<node>", "C:\\Opencode - Projects\\appinventor-autonomous\\mcp\\server.js"] }
-   ```
-
-   The server listens on `127.0.0.1:8766` and serves the page relay at `/relay.js`.
-
-2. **Attach the relay to the editor.** Either
+1. **Attach the relay to the editor.** Either
    - load the unpacked extension in `extension/` (Chrome → `chrome://extensions` →
      Developer mode → Load unpacked), which re-attaches automatically after every page load, or
-   - call `ai_relay_inject` and run the returned snippet in the App Inventor tab.
+   - call `ai_status { action: "inject" }` and run the returned snippet in the App Inventor tab.
 
-3. **Check the link.**
-
-   ```
-   ai_status            -> { connectedTabs: 1, ... }
-   ai_state             -> { projectName, view, components, blocks }
-   ```
-
-4. **Build something.**
+2. **Check the link.**
 
    ```
-   ai_project_create   { name: "MyApp" }
-   ai_component_add    { type: "Button", name: "BtnGo" }
-   ai_component_set_property { component: "BtnGo", property: "Text", value: "Go" }
-   ai_blocks_add       { xml: "<xml ...>...</xml>" }
+   ai_status                    -> { connectedTabs: 1, ... }
+   ai_status { action: "selftest" }  -> 6/6
+   ai_status { action: "state" }     -> { view, selected, components, blocks }
+   ```
+
+3. **Build something.**
+
+   ```
+   ai_project   { action: "create", name: "MyApp" }
+   ai_component { action: "add", type: "Button", name: "BtnGo" }
+   ai_component { action: "set", component: "BtnGo", property: "Text", value: "Go" }
+   ai_blocks    { action: "set", xml: "<xml ...>...</xml>" }
    ai_validate
-   ai_build_and_test   { device: "emulator-5554", steps: [...] }
+   ai_test      { action: "buildAndTest", device: "emulator-5554", steps: [...] }
    ```
+
+4. **Connect a capable client.** The workflows in
+   [docs/prompts](docs/prompts) are served as MCP prompts; the skill in
+   [.opencode/skills/mit-app-inventor](.opencode/skills/mit-app-inventor) teaches an agent the
+   order of operations and the traps.
+
+## This is unofficial
+
+MIT App Inventor has no public API. This project drives its **web client** the way a person
+does — the same endpoints, the same Blockly workspace — from a browser session you are signed
+into. Consequences:
+
+- An App Inventor update can break it. `ai_status { action: "selftest" }` tells you which
+  layer; [docs/compat.md](docs/compat.md) lists what breaks first.
+- It is not affiliated with or endorsed by MIT or the App Inventor team.
+- Use your own account. Do not use it to touch projects you have no right to change, and do
+  not point it at someone else's session.
+- There is no warranty. See [LICENSE](LICENSE) and [SECURITY.md](SECURITY.md) for the trust
+  model before running it against a real account.
 
 ## Layout IR (design sources are optional)
 
@@ -140,7 +178,7 @@ docs/
   prompts/              one markdown file per MCP prompt (single source)
   architecture.md designer.md blocks.md build-and-test.md troubleshooting.md mcp-tools.md
 tests/mcp-smoke.mjs     protocol smoke test (no browser needed)
-samples/                TapCounter.aia (+ .apk) and the block XML it was built from
+samples/                pizza/ — the block generator and its output (no binaries)
 ```
 
 ## Design notes
@@ -171,11 +209,32 @@ samples/                TapCounter.aia (+ .apk) and the block XML it was built f
 
 - `lexical_variable_get/set` must reference globals as `global <name>`; without the prefix
   App Inventor compiles a *local* lookup and the app crashes at runtime with
-  `unbound location $name`. `ai_validate` catches this, `ai_repair` fixes it.
-- `math_arithmetic` does not exist in App Inventor; use `math_add`, `math_subtract`, etc.
+  `unbound location $name`. `ai_validate` catches this, `ai_blocks { action: "repair" }` fixes it.
+- `math_arithmetic` does not exist. `math_add`/`math_multiply` take `NUM0`/`NUM1`;
+  `math_subtract`/`math_division` take `A`/`B`. Wrong socket names are dropped silently.
+- Procedure definitions use a `NAME` field; a call needs the mutation **and** a `PROCNAME`
+  field. Miss it and every call block shows an error marker.
+- `Notifier.ShowAlert` is a toast, not a dialog, and `ShowChooseDialog`'s `cancelable` flag
+  adds a *third* button.
 - GWT buttons ignore a bare `click` event — the relay dispatches a full pointer + mouse
   sequence at real coordinates.
 - A modal dialog (for example a finished build) blocks every later designer click; the
   relay dismisses stale dialogs before each designer operation.
-- `ai_blocks_add` is not transactional: an invalid block type leaves the earlier blocks in
-  place. Use `ai_blocks_set` (or clear first) when the XML is not known-good.
+- `ai_blocks { action: "add" }` is not transactional: an invalid block type leaves the earlier
+  blocks in place. Use `action: "set"` when the XML is not known-good.
+- The Android launcher is always `Screen1`; a UI built on another screen installs and opens
+  blank.
+
+## Documentation
+
+| File | Contents |
+| --- | --- |
+| [docs/mcp-tools.md](docs/mcp-tools.md) | every tool and action |
+| [docs/architecture.md](docs/architecture.md) | server → relay → editor, and why |
+| [docs/designer.md](docs/designer.md) | designer automation and its limits |
+| [docs/blocks.md](docs/blocks.md) | block authoring rules and recipes |
+| [docs/build-and-test.md](docs/build-and-test.md) | compiling and device testing |
+| [docs/compat.md](docs/compat.md) | what survives an App Inventor release |
+| [docs/troubleshooting.md](docs/troubleshooting.md) | failure catalogue |
+| [SECURITY.md](SECURITY.md) | trust boundaries and controls |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | how to test against a live editor |

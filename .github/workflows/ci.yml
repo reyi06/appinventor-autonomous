@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  protocol:
+    name: MCP protocol tests (node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - name: MCP protocol smoke test
+        run: npm run selftest
+      - name: Corpus (real .aia projects, offline)
+        run: npm run corpus
+
+  syntax:
+    name: Syntax and packaging
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Everything parses
+        run: |
+          for f in mcp/server.js mcp/tools.js mcp/prompts.js mcp/resources.js \
+                   mcp/lib/*.js mcp/layout/*.js mcp/page/relay.js bin/appinventor-mcp.js; do
+            node --check "$f" || exit 1
+          done
+      - name: Package is publishable
+        run: npm pack --dry-run
