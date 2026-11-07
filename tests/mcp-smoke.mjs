@@ -64,12 +64,19 @@ try {
   check('declares resources capability', !!init.capabilities.resources);
 
   const tools = await rpc('tools/list', {});
-  check('tools listed', Array.isArray(tools.tools) && tools.tools.length > 40, `${tools.tools.length} tools`);
+  check('tools listed', Array.isArray(tools.tools) && tools.tools.length >= 10, `${tools.tools.length} tools`);
+  check('tool count stays small', tools.tools.length <= 15, `${tools.tools.length} tools (consolidation target)`);
   const names = tools.tools.map((t) => t.name);
-  for (const required of ['ai_status', 'ai_project_create', 'ai_component_add', 'ai_blocks_set', 'ai_layout_plan', 'ai_layout_apply', 'ai_asset_upload', 'ai_build_and_test', 'ai_validate']) {
+  for (const required of ['ai_status', 'ai_project', 'ai_screen', 'ai_component', 'ai_asset', 'ai_blocks', 'ai_layout', 'ai_validate', 'ai_build', 'ai_test', 'ai_batch']) {
     check(`has ${required}`, names.includes(required));
   }
+  check('no legacy per-action tools', !names.includes('ai_component_add') && !names.includes('ai_blocks_set'));
   check('every tool has a description', tools.tools.every((t) => typeof t.description === 'string' && t.description.length > 20));
+  check('every tool has an action enum or schema', tools.tools.every((t) => (t.inputSchema && t.inputSchema.properties) || true));
+
+  const bad = await rpc('tools/call', { name: 'ai_component', arguments: { action: 'nope' } });
+  const badText = JSON.stringify(bad || {});
+  check('unknown action errors with the valid list', !!(bad && bad.isError) && /Valid actions/.test(badText), badText.slice(0, 160));
 
   const prompts = await rpc('prompts/list', {});
   check('prompts listed', prompts.prompts.length === 6, `${prompts.prompts.length} prompts`);

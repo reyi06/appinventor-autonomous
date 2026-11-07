@@ -4,7 +4,7 @@ import { WebSocketServer } from 'ws';
  * WebSocket hub: accepts relay connections from App Inventor editor tabs and
  * correlates tool calls with their responses.
  */
-export function createHub(httpServer, { log = () => {}, remoteFallback = null } = {}) {
+export function createHub(httpServer, { log = () => {}, remoteFallback = null, expectedRelayVersion = null } = {}) {
   const clients = new Map(); // ws -> meta
   const pending = new Map(); // id -> { resolve, reject, timer, tool }
   let wss = null;
@@ -38,6 +38,21 @@ export function createHub(httpServer, { log = () => {}, remoteFallback = null } 
         return;
       }
       if (msg.type === 'hello') {
+        // Refuse a relay that is not the build this server ships. A stale or
+        // foreign script (for example one served by a process squatting the
+        // port) must never drive a signed-in editor session.
+        if (expectedRelayVersion && msg.version !== expectedRelayVersion) {
+          log(`rejecting relay ${meta.id}: version ${msg.version} != expected ${expectedRelayVersion}`);
+          try {
+            ws.send(JSON.stringify({
+              type: 'reject',
+              reason: `relay version ${msg.version} does not match server ${expectedRelayVersion}`
+            }));
+            ws.close();
+          } catch { /* ignore */ }
+          clients.delete(ws);
+          return;
+        }
         meta.hello = { version: msg.version, url: msg.url, project: msg.project, view: msg.view };
         log(`relay hello ${meta.id}: ${msg.project || '?'} @ ${msg.view || '?'} (v${msg.version || '?'})`);
         return;

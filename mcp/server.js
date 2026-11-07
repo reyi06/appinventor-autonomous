@@ -40,12 +40,26 @@ async function probeExistingBridge() {
 
 let hub = null;
 let toolMap = new Map();
+let built = null;
 let bound = false;
 
+/** The relay version this server ships, read from the served script. */
+function relayVersion() {
+  try {
+    const src = fs.readFileSync(path.join(__dirname, 'page', 'relay.js'), 'utf8');
+    const m = src.match(/var VERSION\s*=\s*'([^']+)'/);
+    return m ? m[1] : null;
+  } catch {
+    return null;
+  }
+}
+
+const EXPECTED_RELAY_VERSION = relayVersion();
+
 function buildTools(h) {
-  const tools = createTools({ hub: h, workDir: ROOT });
-  toolMap = new Map(tools.map((t) => [t.name, t]));
-  return tools;
+  const result = createTools({ hub: h, workDir: ROOT });
+  toolMap = new Map(result.tools.map((t) => [t.name, t]));
+  return result;
 }
 
 function createHttpHandler(h) {
@@ -109,7 +123,14 @@ function createHttpHandler(h) {
         try {
           const { tool, arguments: args } = JSON.parse(body || '{}');
           const entry = toolMap.get(tool);
-          if (!entry) throw new Error(`Unknown tool: ${tool}`);
+          if (!entry) {
+            const op = built && built.ops ? built.ops.get(tool) : null;
+            if (!op) throw new Error(`Unknown tool: ${tool}`);
+            const result = await op.handler(args || {});
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(result, null, 2));
+            return;
+          }
           const result = await entry.handler(args || {});
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify(result, null, 2));
@@ -140,14 +161,14 @@ async function start() {
 
   if (alreadyRunning) {
     log(`another bridge already serves 127.0.0.1:${PORT} - this instance forwards relay calls to it`);
-    hub = createHub(null, { log, remoteFallback: `http://127.0.0.1:${PORT}` });
+    hub = createHub(null, { log, remoteFallback: `http://127.0.0.1:${PORT}`, expectedRelayVersion: EXPECTED_RELAY_VERSION });
   } else {
     const httpServer = http.createServer((req, res) => {
       if (!hub) { res.writeHead(503).end('starting'); return; }
       createHttpHandler(hub)(req, res);
     });
 
-    hub = createHub(httpServer, { log });
+    hub = createHub(httpServer, { log, expectedRelayVersion: EXPECTED_RELAY_VERSION });
 
     await new Promise((resolve) => {
       let settled = false;
@@ -170,15 +191,15 @@ async function start() {
     });
 
     if (!bound) {
-      hub = createHub(null, { log, remoteFallback: `http://127.0.0.1:${PORT}` });
+      hub = createHub(null, { log, remoteFallback: `http://127.0.0.1:${PORT}`, expectedRelayVersion: EXPECTED_RELAY_VERSION });
     }
   }
 
-  const tools = buildTools(hub);
+  built = buildTools(hub);
   const prompts = createPrompts({ rootDir: ROOT });
   const resources = createResources({ rootDir: ROOT, hub });
-  createMcpServer({ name: 'appinventor-autonomous', version: '1.1.0', tools, prompts, resources, log });
-  log(`MCP server ready with ${tools.length} tools, ${prompts.list().length} prompts, ${resources.list().length} resources (${bound ? 'bridge' : 'relay-forwarder'} mode)`);
+  createMcpServer({ name: 'appinventor-autonomous', version: '2.0.0', tools: built.tools, prompts, resources, log });
+  log(`MCP server ready with ${built.tools.length} tools, ${prompts.list().length} prompts, ${resources.list().length} resources (${bound ? 'bridge' : 'relay-forwarder'} mode)`);
 }
 
 process.on('uncaughtException', (err) => log(`uncaught: ${err.stack || err.message}`));

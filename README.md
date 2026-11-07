@@ -154,6 +154,18 @@ samples/                TapCounter.aia (+ .apk) and the block XML it was built f
   including `component_event`, `component_method`, `component_set_get`, procedures,
   lexical variables, lists, dictionaries, loops and arbitrary raw types.
 - **Calls are addressed to one relay**, so duplicate tabs never execute a command twice.
+- **13 tools, not 50.** Every tool is intention-level and takes an `action`; the ~48 internal
+  operations sit behind them. Large tool catalogues measurably degrade agent tool selection.
+  `ai_batch` runs several calls in one request.
+- **Untrusted content is marked.** Results that embed text from the project or device carry
+  `_untrusted: true` and a notice: a project containing instruction-like text is data, not a
+  command.
+- **The relay is version-pinned.** The server refuses a page relay whose version differs from
+  the script it ships, so a stale or foreign script cannot drive a signed-in session.
+- **`ai_ui_eval` is off by default** (`AI2_ALLOW_EVAL=1` to enable): it executes arbitrary
+  JavaScript in that session.
+- **Destructive writes checkpoint first** to `checkpoints/*.aia`, so a bad edit is
+  recoverable by re-importing.
 
 ## Known pitfalls (learned the hard way)
 
