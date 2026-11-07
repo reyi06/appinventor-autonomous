@@ -1596,10 +1596,11 @@ export function createTools(ctx) {
   const p = (description) => ({ type: 'string', description });
 
   const publicTools = [
-    tool('ai_status', 'Connection and health. action=status shows relay/editor state; selftest verifies the whole server against the live editor; inject returns the snippet that attaches the page relay.', {
+    tool('ai_status', 'Connection and health. action=status shows relay/editor state; selftest verifies the whole server against the live editor; inject returns the snippet that attaches the page relay; state reads the live editor view/selection/components.', {
       status: 'ai_status',
       selftest: 'ai_selftest',
-      inject: 'ai_relay_inject'
+      inject: 'ai_relay_inject',
+      state: 'ai_state'
     }, { port: { type: 'number', description: 'Relay port for inject (default 8766)' } }),
 
     tool('ai_project', 'Project lifecycle and project-level settings. info/create/open/import/export/properties/removeScreen/delete.', {

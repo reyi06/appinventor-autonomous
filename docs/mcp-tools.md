@@ -14,12 +14,13 @@ did not happen. Results that contain text from the project or the device are mar
 ---
 
 ## `ai_status`
-`action: status | selftest | inject`
+`action: status | selftest | inject | state`
 
 - `status` — relay tabs, project/screen, editor view
 - `selftest` — read-only compatibility check against the live editor (relay, state, catalog,
   export, blocks, tree). Run it after an App Inventor update.
 - `inject` — script snippet (and bookmarklet) that attaches the page relay
+- `state` — live editor view, selected component, component list and block counts
 
 ## `ai_project`
 `action: info | create | open | import | export | properties | removeScreen | delete`
