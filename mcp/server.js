@@ -20,23 +20,12 @@ fs.mkdirSync(LOG_DIR, { recursive: true });
 
 function log(msg) {
   const line = `[${new Date().toISOString()}] ${msg}\n`;
-  try { fs.appendFileSync(LOG_FILE, line); } catch { /* ignore */ }
+  // Asynchronous: never let disk or a full stderr pipe block the protocol loop.
+  fs.appendFile(LOG_FILE, line, () => {});
   process.stderr.write(line);
 }
 
 const relayPath = path.join(__dirname, 'page', 'relay.js');
-
-/** Is another appinventor-autonomous bridge already serving this port? */
-async function probeExistingBridge() {
-  try {
-    const ctl = AbortSignal.timeout(700);
-    const res = await fetch(`http://127.0.0.1:${PORT}/health`, { signal: ctl });
-    const body = await res.json();
-    return !!(body && body.relayUrl);
-  } catch {
-    return false;
-  }
-}
 
 let hub = null;
 let toolMap = new Map();
@@ -156,59 +145,51 @@ function createHttpHandler(h) {
   };
 }
 
-async function start() {
-  const alreadyRunning = await probeExistingBridge();
+/**
+ * Startup order matters: the MCP transport is attached FIRST and synchronously,
+ * because the client waits on `initialize`. Binding the HTTP/WebSocket relay is
+ * best effort and must never gate the protocol handshake — a stalled bind used
+ * to look to the client like "Request timed out".
+ */
+function start() {
+  let remoteHint = null;
 
-  if (alreadyRunning) {
-    log(`another bridge already serves 127.0.0.1:${PORT} - this instance forwards relay calls to it`);
-    hub = createHub(null, { log, remoteFallback: `http://127.0.0.1:${PORT}`, expectedRelayVersion: EXPECTED_RELAY_VERSION });
-  } else {
-    const httpServer = http.createServer((req, res) => {
-      if (!hub) { res.writeHead(503).end('starting'); return; }
-      createHttpHandler(hub)(req, res);
-    });
+  const httpServer = http.createServer((req, res) => {
+    if (!hub) { res.writeHead(503).end('starting'); return; }
+    createHttpHandler(hub)(req, res);
+  });
 
-    hub = createHub(httpServer, { log, expectedRelayVersion: EXPECTED_RELAY_VERSION });
-
-    await new Promise((resolve) => {
-      let settled = false;
-      const done = () => { if (!settled) { settled = true; resolve(); } };
-
-      httpServer.once('error', (err) => {
-        if (err.code === 'EADDRINUSE') {
-          log(`port ${PORT} became busy - switching to remote mode`);
-        } else {
-          log(`http server error: ${err.message}`);
-        }
-        done();
-      });
-
-      httpServer.listen(PORT, '127.0.0.1', () => {
-        bound = true;
-        log(`listening on http://127.0.0.1:${PORT} (relay: /relay.js)`);
-        done();
-      });
-    });
-
-    if (!bound) {
-      hub = createHub(null, { log, remoteFallback: `http://127.0.0.1:${PORT}`, expectedRelayVersion: EXPECTED_RELAY_VERSION });
-    }
-  }
+  hub = createHub(httpServer, {
+    log,
+    expectedRelayVersion: EXPECTED_RELAY_VERSION,
+    remoteFallback: () => remoteHint
+  });
 
   built = buildTools(hub);
   const prompts = createPrompts({ rootDir: ROOT });
   const resources = createResources({ rootDir: ROOT, hub });
   createMcpServer({ name: 'appinventor-autonomous', version: '2.0.0', tools: built.tools, prompts, resources, log });
-  log(`MCP server ready with ${built.tools.length} tools, ${prompts.list().length} prompts, ${resources.list().length} resources (${bound ? 'bridge' : 'relay-forwarder'} mode)`);
+  log(`MCP server ready with ${built.tools.length} tools, ${prompts.list().length} prompts, ${resources.list().length} resources`);
+
+  httpServer.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      remoteHint = `http://127.0.0.1:${PORT}`;
+      log(`port ${PORT} is busy - forwarding relay calls to the bridge already there`);
+    } else {
+      log(`http server error: ${err.message}`);
+    }
+  });
+
+  httpServer.listen(PORT, '127.0.0.1', () => {
+    bound = true;
+    log(`relay listening on http://127.0.0.1:${PORT} (relay: /relay.js)`);
+  });
 }
 
 process.on('uncaughtException', (err) => log(`uncaught: ${err.stack || err.message}`));
 process.on('unhandledRejection', (err) => log(`unhandled rejection: ${err && err.stack ? err.stack : err}`));
 
-start().catch((err) => {
-  log(`fatal during startup: ${err.stack || err.message}`);
-  process.exit(1);
-});
+start();
 
 process.on('SIGTERM', () => { try { hub && hub.close(); } catch { /* ignore */ } process.exit(0); });
 process.on('SIGINT', () => { try { hub && hub.close(); } catch { /* ignore */ } process.exit(0); });

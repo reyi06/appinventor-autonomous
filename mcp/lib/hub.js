@@ -12,6 +12,9 @@ export function createHub(httpServer, { log = () => {}, remoteFallback = null, e
 
   if (httpServer) {
     wss = new WebSocketServer({ server: httpServer });
+    // A bind failure surfaces here too; without a listener it becomes an
+    // uncaught exception that kills the process.
+    wss.on('error', (err) => log(`websocket server error: ${err.message}`));
     attach(wss);
   }
 
