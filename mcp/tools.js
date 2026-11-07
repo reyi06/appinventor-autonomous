@@ -2,6 +2,9 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { readZip, writeZip } from './lib/zip.js';
 import * as adb from './lib/adb.js';
+import { normalizeScreen, flatten, toAppInventorColor } from './layout/ir.js';
+import { planScreen, planTheme, missingAssets } from './layout/plan.js';
+import { applyPlan } from './layout/apply.js';
 import {
   parseScm, serializeScm, parseProperties, serializeProperties,
   componentNode, flattenComponents, findComponent, listScreens, sourceDir
@@ -396,8 +399,43 @@ export function createTools(ctx) {
   });
 
   add({
+    name: 'ai_project_remove_screen',
+    description: 'Remove a screen by rewriting the exported .aia and re-importing it. Deterministic (no Designer UI), but the project is re-created under the same name with a new id, so re-open it afterwards.',
+    inputSchema: {
+      type: 'object',
+      properties: { screen: { type: 'string' } },
+      required: ['screen']
+    },
+    handler: async ({ screen }) => {
+      const { files, projectName } = await fetchProject();
+      const keep = [];
+      let removed = 0;
+      for (const [name, buf] of files) {
+        const m = name.match(/^src\/appinventor\/[^/]+\/([^/]+)\//);
+        if (m && m[1] === projectName) {
+          const fm = name.match(/^src\/appinventor\/[^/]+\/[^/]+\/(.+)\.(scm|bky|yail)$/);
+          if (fm && fm[1] === screen) { removed++; continue; }
+        }
+        keep.push({ name, data: buf });
+      }
+      if (!removed) throw new Error(`Screen not found in the project: ${screen}`);
+
+      const buf = writeZip(keep);
+      const res = await call('project.importAia', { name: projectName, base64: buf.toString('base64') }, 180000);
+      return {
+        ok: !!res.success,
+        projectName,
+        projectId: res.projectId,
+        removedFiles: removed,
+        bytes: buf.length,
+        next: `ai_project_open({ projectId: "${res.projectId}" }) then re-attach the relay and verify with ai_screens_list`
+      };
+    }
+  });
+
+  add({
     name: 'ai_screen_remove',
-    description: 'Remove a screen from the project. The screen must be the one currently open in the Designer.',
+    description: 'Remove the screen currently open in the Designer (Designer UI path). Some App Inventor builds do not respond to programmatic clicks here; use ai_project_remove_screen when this fails.',
     inputSchema: {
       type: 'object',
       properties: { name: { type: 'string' } },
@@ -958,6 +996,225 @@ export function createTools(ctx) {
   });
 
   add({
+    name: 'ai_asset_upload',
+    description: 'Upload a file into the project assets/ folder (PNG, JPG, SVG, WEBP, MP3, WAV, OGG, MP4, JSON, etc.) and verify it landed. This is what makes designer Picture/Source properties usable.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file: { type: 'string', description: 'Absolute path of a local file to upload' },
+        base64: { type: 'string', description: 'Raw base64 (used instead of file)' },
+        name: { type: 'string', description: 'Asset file name including extension (defaults to the source file name)' },
+        path: { type: 'string', description: 'Target path inside the project (defaults to assets/<name>)' }
+      }
+    },
+    handler: async ({ file: filePathIn, base64, name: nameIn, path: targetPath } = {}) => {
+      if (!filePathIn && !base64) throw new Error('Provide file or base64');
+      const buf = filePathIn ? await fs.readFile(filePathIn) : Buffer.from(base64, 'base64');
+      const name = nameIn || (filePathIn ? path.basename(filePathIn) : null);
+      if (!name) throw new Error('name is required when uploading base64');
+      if (!/^[A-Za-z0-9._-]+$/.test(name)) throw new Error('Asset name may only contain letters, digits, dot, underscore, hyphen');
+      const MAX = 30 * 1024 * 1024;
+      if (buf.length > MAX) throw new Error(`Asset is ${(buf.length / 1048576).toFixed(1)} MB; App Inventor rejects very large uploads`);
+
+      const existing = new Set();
+      try {
+        const { files } = await fetchProject();
+        for (const k of files.keys()) if (k.startsWith('assets/')) existing.add(k.slice('assets/'.length));
+      } catch { /* export optional */ }
+
+      const mime = guessMime(name);
+      const res = await call('project.uploadAsset', {
+        name,
+        base64: buf.toString('base64'),
+        mime,
+        path: targetPath
+      }, 120000);
+
+      if (!res.success) {
+        return {
+          __isError: true,
+          data: { ok: false, stage: 'upload', status: res.status, raw: res.raw, name }
+        };
+      }
+
+      await new Promise((r) => setTimeout(r, 1200));
+      let verified = false;
+      let assets = [...existing];
+      try {
+        const { files } = await fetchProject();
+        assets = [...files.keys()].filter((k) => k.startsWith('assets/')).map((k) => k.slice('assets/'.length));
+        verified = assets.includes(name);
+      } catch { /* export optional */ }
+
+      return {
+        ok: verified || existing.has(name),
+        name,
+        bytes: buf.length,
+        mime,
+        verified,
+        replaced: existing.has(name),
+        assets: assets.sort(),
+        note: verified
+          ? 'Asset stored in the project. Reload the editor tab before picking it in a designer dropdown (the asset list is cached in the client).'
+          : 'Upload reported success but the asset did not appear in the exported project yet; re-run ai_screens_list or retry.'
+      };
+    }
+  });
+
+  add({
+    name: 'ai_assets_list',
+    description: 'List the files in the project assets/ folder (authoritative, read from the exported .aia).',
+    inputSchema: { type: 'object', properties: {} },
+    handler: async () => {
+      const { files, projectName } = await fetchProject();
+      const assets = [...files.keys()]
+        .filter((k) => k.startsWith('assets/'))
+        .map((k) => ({ name: k.slice('assets/'.length), bytes: files.get(k).length }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      return { ok: true, projectName, count: assets.length, assets };
+    }
+  });
+
+  add({
+    name: 'ai_layout_plan',
+    description: 'Compile a Layout IR screen spec (JSON) into App Inventor component operations without touching the project. Returns the plan, a fidelity report (mapped/approximated/unsupported) and any missing assets.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        spec: { type: 'object', description: 'Screen spec: { name, title?, props?, root: node }' },
+        checkAssets: { type: 'boolean', description: 'Also check referenced assets against the project (default true)' }
+      },
+      required: ['spec']
+    },
+    handler: async ({ spec, checkAssets = true }) => {
+      const { screen, notes } = normalizeScreen(spec);
+      const { ops, report } = planScreen(screen);
+
+      let assets = null;
+      let missing = [];
+      if (checkAssets) {
+        try {
+          const { files } = await fetchProject();
+          assets = new Set([...files.keys()].filter((k) => k.startsWith('assets/')).map((k) => k.slice('assets/'.length)));
+          missing = missingAssets(screen, assets);
+        } catch { /* export optional */ }
+      }
+
+      return {
+        ok: true,
+        screen: screen.name,
+        report,
+        notes,
+        missingAssets: missing,
+        components: report.names,
+        ops
+      };
+    }
+  });
+
+  add({
+    name: 'ai_layout_apply',
+    description: 'Build a screen from a Layout IR spec: creates the screen (optional), adds components in order, applies properties, and reports every approximation. Use ai_layout_plan first to see what will happen.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        spec: { type: 'object', description: 'Screen spec: { name, title?, props?, root: node }' },
+        createScreen: { type: 'boolean', description: 'Create and open a new screen (default true). false applies to the current screen.' },
+        allowMissingAssets: { type: 'boolean', description: 'Continue when a referenced asset is absent (default false)' }
+      },
+      required: ['spec']
+    },
+    handler: async ({ spec, createScreen = true, allowMissingAssets = false }) => {
+      const { screen, notes } = normalizeScreen(spec);
+      const { ops, report } = planScreen(screen);
+
+      let missing = [];
+      try {
+        const { files } = await fetchProject();
+        const assets = new Set([...files.keys()].filter((k) => k.startsWith('assets/')).map((k) => k.slice('assets/'.length)));
+        missing = missingAssets(screen, assets);
+      } catch { /* export optional */ }
+      if (missing.length && !allowMissingAssets) {
+        throw new Error(
+          `Missing assets: ${missing.map((m) => `${m.asset} (for ${m.node})`).join(', ')}. ` +
+          'Upload them with ai_asset_upload first, or pass allowMissingAssets: true.'
+        );
+      }
+
+      const ctx = {
+        addScreen: async (name, title) => {
+          if (!createScreen) return;
+          await call('designer.addScreen', { name }, 90000);
+          if (title) await call('designer.setProperty', { component: name, property: 'Title', value: title }, 60000);
+        },
+        addComponent: async (type, name, parent) => {
+          await call('designer.addComponent', { type, name, parent }, 120000);
+        },
+        setProperty: async (component, property, value) => {
+          await call('designer.setProperty', { component, property, value }, 60000);
+        }
+      };
+
+      const result = await applyPlan(ops, ctx);
+
+      return {
+        ok: result.failures.length === 0,
+        screen: screen.name,
+        createdScreen: createScreen,
+        report,
+        notes,
+        missingAssets: missing,
+        applied: result.applied,
+        approximations: result.approximations,
+        failures: result.failures,
+        next: [
+          'ai_blocks_set to add behaviour',
+          'ai_validate',
+          'ai_build_and_test { device: "emulator-5554", steps: [...] }'
+        ]
+      };
+    }
+  });
+
+  add({
+    name: 'ai_theme_apply',
+    description: 'Apply design tokens (colours, type scale) to an existing screen. Tokens: color.primary, color.background, color.text, type.body.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        screen: { type: 'string', description: 'Screen name (default: the open screen)' },
+        tokens: { type: 'object', description: 'e.g. { "color.primary": "#3F51B5", "color.text": "#111111" }' }
+      },
+      required: ['tokens']
+    },
+    handler: async ({ screen: screenName, tokens }) => {
+      const { files } = await fetchProject();
+      const target = screenName || 'Screen1';
+      let path = null;
+      for (const p of files.keys()) if (p.endsWith(`/${target}.scm`)) path = p;
+      if (!path) throw new Error(`Screen not found: ${target}`);
+
+      const form = parseScm(files.get(path).toString('utf8'));
+      const normalized = componentNode(form.Properties);
+      const irScreen = { name: normalized.name, title: normalized.name, props: {}, root: toIrNode(normalized) };
+      const { ops, notes } = planTheme(irScreen, tokens);
+
+      let applied = 0;
+      const approximations = [];
+      for (const op of ops) {
+        try {
+          await call('designer.setProperty', { component: op.component, property: op.property, value: op.value }, 60000);
+          applied++;
+        } catch (e) {
+          approximations.push({ component: op.component, property: op.property, reason: e.message });
+        }
+      }
+
+      return { ok: true, screen: target, applied, planned: ops.length, approximations, notes };
+    }
+  });
+
+  add({
     name: 'ai_download',
     description: 'Download a URL (for example a build link) to a local file.',
     inputSchema: {
@@ -981,8 +1238,47 @@ export function createTools(ctx) {
   return tools;
 }
 
-function stripProps(node) {
+const MIME_BY_EXT = {
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
+  webp: 'image/webp', svg: 'image/svg+xml', bmp: 'image/bmp',
+  mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', m4a: 'audio/mp4',
+  mp4: 'video/mp4', '3gp': 'video/3gpp', webm: 'video/webm',
+  json: 'application/json', txt: 'text/plain', csv: 'text/csv', pdf: 'application/pdf',
+  ttf: 'font/ttf', otf: 'font/otf', woff: 'font/woff', woff2: 'font/woff2'
+};
+
+export function guessMime(name) {
+  const ext = String(name).split('.').pop().toLowerCase();
+  return MIME_BY_EXT[ext] || 'application/octet-stream';
+}
+
+/** Map an .scm component tree into Layout IR nodes (reverse adapter). */
+function toIrNode(component) {
+  const type = component.type || '';
+  let kind = 'container';
+  if (type === 'Form' || /Arrangement$/.test(type) || type === 'Canvas' || type === 'TableArrangement') kind = 'container';
+  else if (type === 'Label') kind = 'text';
+  else if (type === 'Button' || type === 'ImageButton') kind = 'button';
+  else if (type === 'Image') kind = 'image';
+  else if (type === 'TextBox' || type === 'PasswordTextBox' || type === 'EmailPicker') kind = 'input';
+  else if (/^(ListPicker|ListView|CheckBox|Switch|Slider|DatePicker|TimePicker|Spinner|WebViewer|VideoPlayer)$/.test(type)) kind = 'text';
+
+  const props = component.properties || {};
   return {
+    id: component.uuid ? String(component.uuid) : null,
+    kind,
+    type,
+    name: component.name,
+    text: props.Text != null ? String(props.Text) : null,
+    asset: props.Picture || props.Source || null,
+    layout: { dir: /Horizontal/.test(type) ? 'horizontal' : 'vertical' },
+    style: {},
+    props,
+    children: (component.children || []).map(toIrNode)
+  };
+}
+
+function stripProps(node) {  return {
     name: node.name,
     type: node.type,
     children: (node.children || []).map(stripProps)
@@ -1010,6 +1306,9 @@ export function verifyApk(buf) {
     result.checks.dex = names.some((n) => /^classes\d*\.dex$/.test(n));
     result.checks.resources = names.includes('resources.arsc');
     result.checks.signature = names.some((n) => /^META-INF\/.*\.(RSA|DSA|EC|SF)$/i.test(n));
+    const assetNames = names.filter((n) => n.startsWith('assets/')).map((n) => n.slice('assets/'.length));
+    result.checks.assets = assetNames;
+    result.checks.assetCount = assetNames.length;
     const manifest = files.get('AndroidManifest.xml');
     if (manifest) {
       // Binary XML: package name appears as a UTF-16LE string in the string pool.

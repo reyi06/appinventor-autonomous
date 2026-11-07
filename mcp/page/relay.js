@@ -14,7 +14,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '1.1.6';
+  var VERSION = '1.2.5';
   var WS_URL = window.__AI_RELAY_WS__ || 'ws://127.0.0.1:8766';
   var PREFIX = '[ai-relay]';
 
@@ -272,8 +272,9 @@
     });
   }
 
-  /** Close leftover modal dialogs (e.g. a previous build result) that block clicks. */
+  /** Close leftover modal dialogs and dropdown popups that swallow clicks. */
   function dismissDialogs() {
+    closePopups();
     var dialogs = document.querySelectorAll('.ode-DialogBox');
     for (var i = 0; i < dialogs.length; i++) {
       var buttons = dialogs[i].querySelectorAll('button, .ode-TextButton, .gwt-Button');
@@ -284,6 +285,19 @@
           break;
         }
       }
+    }
+  }
+
+  /** Escape + hide any open GWT popup (dropdown menus, choice panels). */
+  function closePopups() {
+    try {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, which: 27, bubbles: true, cancelable: true }));
+      document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+      document.body.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    } catch (e) { /* ignore */ }
+    var pops = document.querySelectorAll('.ode-MultipleChoicePropertyEditor, .ode-ChoicePropertyEditor-popup');
+    for (var i = 0; i < pops.length; i++) {
+      pops[i].style.display = 'none';
     }
   }
 
@@ -456,8 +470,125 @@
     return null;
   }
 
+  /** Drive the Length editor popup (Automatic / Fill parent / px / %). */
+  function chooseLengthValue(popup, value) {
+    var radios = popup.querySelectorAll('input[type="radio"]');
+    if (!radios.length) return false;
+
+    var fields = popup.querySelectorAll('input[type="text"]');
+    var raw = String(value).trim();
+    var norm = raw.replace(/\.+$/, '').toLowerCase();
+    var numeric = /^-?\d+$/.test(raw) ? parseInt(raw, 10) : null;
+
+    function checkRadio(radio) {
+      if (!radio) return false;
+      try { radio.click(); } catch (e) { /* ignore */ }
+      if (!radio.checked) radio.checked = true;
+      fire(radio, 'input');
+      fire(radio, 'change');
+      return true;
+    }
+
+    function radioByText(re) {
+      for (var i = 0; i < radios.length; i++) {
+        var t = radios[i].parentElement ? radios[i].parentElement.textContent : '';
+        if (re.test(t)) return radios[i];
+      }
+      return null;
+    }
+
+    function setField(field, text) {
+      if (!field) return;
+      field.focus();
+      field.value = text;
+      fire(field, 'input');
+      fire(field, 'keyup');
+      fire(field, 'change');
+    }
+
+    if (norm === 'automatic' || norm === 'auto') {
+      checkRadio(radioByText(/automatic/i) || radios[0]);
+    } else if (norm === 'fill parent' || norm === 'fill_parent' || norm === 'fillparent') {
+      checkRadio(radioByText(/fill\s*parent/i) || radios[1]);
+    } else if (numeric !== null) {
+      if (numeric <= -1000) {
+        // percent: the custom-length radio has no caption, so go by position
+        checkRadio(radios[3] || radios[radios.length - 1]);
+        setField(fields.length > 1 ? fields[fields.length - 1] : fields[0], String(-numeric - 1000));
+      } else {
+        checkRadio(radios[2] || radios[radios.length - 1]);
+        setField(fields[0], String(Math.max(0, numeric)));
+      }
+    } else {
+      return false;
+    }
+
+    return sleep(200).then(function () {
+      var ok = dialogButton(popup, /^(OK|Ok)$/i);
+      if (!ok) throw new Error('OK button not found in the length editor');
+      click(ok);
+      return sleep(300).then(function () { return { kind: 'length', value: raw }; });
+    });
+  }
+
+  /** Open the additional-choice popup for editors like the asset selector. */
+  function chooseAdditionalValue(row, value) {
+    var field = row.querySelector('input.ode-PropertyEditor');
+    if (!field) throw new Error('no editor field in this property row');
+    field.focus();
+    field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
+    field.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
+    return waitFor(function () { return document.querySelector('.ode-MultipleChoicePropertyEditor'); }, 5000)
+      .then(function (popup) {
+        var select = popup.querySelector('select');
+        if (select) {
+          var match = null;
+          for (var i = 0; i < select.options.length; i++) {
+            if (select.options[i].text === String(value) || select.options[i].value === String(value)) { match = select.options[i]; break; }
+          }
+          if (!match) {
+            var available = [];
+            for (var j = 0; j < select.options.length; j++) available.push(select.options[j].text);
+            throw new Error('Option not found: ' + value + ' (available: ' + available.join(', ') + ')');
+          }
+          select.value = match.value;
+          fire(select, 'change');
+          return sleep(200).then(function () { return popup; });
+        }
+
+        // Length editor path
+        return chooseLengthValue(popup, value).then(function (res) {
+          if (res === false) {
+            try { closePopups(); } catch (e) { /* ignore */ }
+            throw new Error('This choice editor cannot take "' + value + '"; set it in the Designer UI');
+          }
+          return null;
+        });
+      })
+      .then(function (popup) {
+        if (!popup) return { kind: 'length', value: String(value) };
+        var ok = dialogButton(popup, /^(OK|Ok)$/i);
+        if (!ok) throw new Error('OK button not found in the choice dialog');
+        click(ok);
+        return sleep(300).then(function () { return { kind: 'choice', value: value }; });
+      });
+  }
+
   function setPropertyOnRow(row, value) {
+    // Dropdown-based editors (colour, typeface, alignment, shape) render a
+    // GWT DropDownButton that cannot be driven reliably from script.
+    if (row.querySelector('.ode-ColorChoicePropertyEditor, .ode-ChoicePropertyEditor')) {
+      throw new Error(
+        'This property uses a dropdown editor (colour/typeface/alignment) that this build does not expose ' +
+        'to programmatic clicks. Set it in the Designer UI, or leave it to the design import report.'
+      );
+    }
+
     var input = row.querySelector('input.ode-PropertyEditor, input.ode-TextPropertyEditor');
+    if (input && input.readOnly) {
+      // Asset / dependent-choice editors only commit through their popup.
+      return chooseAdditionalValue(row, value);
+    }
     if (input && input.type !== 'checkbox') {
       input.focus();
       input.value = String(value);
@@ -465,13 +596,13 @@
       fire(input, 'keyup');
       fire(input, 'change');
       input.blur();
-      return { kind: 'text', value: input.value };
+      return Promise.resolve({ kind: 'text', value: input.value });
     }
     var checkbox = row.querySelector('input[type="checkbox"]');
     if (checkbox) {
       var want = value === true || value === 'true' || value === 'True' || value === 1 || value === '1';
       if (checkbox.checked !== want) click(checkbox);
-      return { kind: 'checkbox', value: checkbox.checked };
+      return Promise.resolve({ kind: 'checkbox', value: checkbox.checked });
     }
     var select = row.querySelector('select.gwt-ListBox, select');
     if (select) {
@@ -486,7 +617,7 @@
       }
       select.value = match.value;
       fire(select, 'change');
-      return { kind: 'select', value: match.text };
+      return Promise.resolve({ kind: 'select', value: match.text });
     }
     var area = row.querySelector('textarea');
     if (area) {
@@ -495,9 +626,9 @@
       fire(area, 'input');
       fire(area, 'change');
       area.blur();
-      return { kind: 'textarea', value: area.value };
+      return Promise.resolve({ kind: 'textarea', value: area.value });
     }
-    throw new Error('No editable control found for this property (maybe a colour or asset picker)');
+    throw new Error('No editable control found for this property');
   }
 
   /* ------------------------------------------------------------------- RPC */
@@ -514,7 +645,8 @@
       projectName: projectName(),
       projectId: projectId(),
       view: viewMode(),
-      selected: selectedComponentName()
+      selected: selectedComponentName(),
+      intercepted: (window.__aiRelayDialogs || []).slice(-10)
     };
     try {
       out.componentCount = instanceList().length;
@@ -578,6 +710,34 @@
           status: parts[0],
           projectId: parts[3] || null,
           projectName: parts[4] || null
+        };
+      });
+  };
+
+  H['project.uploadAsset'] = function (p) {
+    if (!p || !p.name || !p.base64) throw new Error('name and base64 are required');
+    var pid = projectId();
+    if (!pid) throw new Error('No project open');
+    var target = p.path || ('assets/' + p.name);
+    var bytes = new Uint8Array(arrayBufferFromB64(p.base64));
+    var blob = new Blob([bytes], { type: p.mime || 'application/octet-stream' });
+    var fd = new FormData();
+    fd.append('uploadFile', blob, p.name);
+    var urlPath = target.split('/').map(encodeURIComponent).join('/');
+    return fetch('/ode/upload/file/' + pid + '/' + urlPath, {
+      method: 'POST', body: fd, credentials: 'include'
+    })
+      .then(function (r) { return r.text(); })
+      .then(function (text) {
+        var m = text.match(/\[UPLOAD RESPONSE BEGIN\]([\s\S]*?)\[UPLOAD RESPONSE END\]/);
+        var payload = m ? m[1] : text;
+        var parts = payload.split('#DELIM#');
+        return {
+          raw: payload.slice(0, 300),
+          success: parts[0] === 'SUCCESS',
+          status: parts[0],
+          bytes: bytes.length,
+          path: target
         };
       });
   };
@@ -887,9 +1047,10 @@
         var row = propertyRow(p.property);
         if (!row) throw new Error('Property row not found: ' + p.property +
           ' (properties are grouped; select the component in the Designer first)');
-        var result = setPropertyOnRow(row, p.value);
-        return sleep(200).then(function () {
-          return { component: p.component, property: p.property, written: p.value, control: result };
+        return Promise.resolve(setPropertyOnRow(row, p.value)).then(function (result) {
+          return sleep(250).then(function () {
+            return { component: p.component, property: p.property, written: p.value, control: result };
+          });
         });
       });
   };
@@ -1046,6 +1207,20 @@
   };
 
   /* ------------------------------------------------------------ transport */
+
+  /* App Inventor uses native alert/confirm for some flows (screen deletion).
+   * A native dialog freezes the page and blocks every later command, so the
+   * relay records the message instead and answers yes. Everything intercepted
+   * is reported back in `state.intercepted`, so nothing happens silently. */
+  if (!window.__aiRelayDialogs) {
+    window.__aiRelayDialogs = [];
+    try {
+      window.alert = function (msg) { window.__aiRelayDialogs.push('alert: ' + String(msg)); };
+      window.confirm = function (msg) { window.__aiRelayDialogs.push('confirm: ' + String(msg)); return true; };
+      window.prompt = function (msg) { window.__aiRelayDialogs.push('prompt: ' + String(msg)); return ''; };
+    } catch (e) { /* ignore */ }
+  }
+  if (window.__aiRelayDialogs.length > 50) window.__aiRelayDialogs.splice(0, window.__aiRelayDialogs.length - 50);
 
   var ws = null;
   var connected = false;
