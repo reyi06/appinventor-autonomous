@@ -14,7 +14,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '1.1.1';
+  var VERSION = '1.1.2';
   var WS_URL = window.__AI_RELAY_WS__ || 'ws://127.0.0.1:8766';
   var PREFIX = '[ai-relay]';
 
@@ -998,8 +998,9 @@
 
     ws.onclose = function () {
       connected = false;
-      setTimeout(connect, backoff);
-      backoff = Math.min(backoff * 2, 5000);
+      var wait = Math.max(backoff, 1000) + Math.floor(Math.random() * 400);
+      setTimeout(connect, wait);
+      backoff = Math.min(Math.max(backoff, 1000) * 2, 8000);
     };
 
     ws.onerror = function () { /* onclose handles retry */ };

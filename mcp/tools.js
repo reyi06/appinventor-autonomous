@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { readZip, writeZip } from './lib/zip.js';
+import * as adb from './lib/adb.js';
 import {
   parseScm, serializeScm, parseProperties, serializeProperties,
   componentNode, flattenComponents, findComponent, listScreens, sourceDir
@@ -733,6 +734,112 @@ export function createTools(ctx) {
       required: ['script']
     },
     handler: async ({ script }) => call('ui.eval', { script }, 90000)
+  });
+
+  add({
+    name: 'ai_devices',
+    description: 'List attached Android devices and emulators available for testing.',
+    inputSchema: { type: 'object', properties: {} },
+    handler: async () => {
+      try {
+        return { ok: true, devices: await adb.listDevices() };
+      } catch (e) {
+        return { ok: false, error: e.message, devices: [] };
+      }
+    }
+  });
+
+  add({
+    name: 'ai_install_apk',
+    description: 'Install an APK on a connected device or emulator (defaults to the first emulator).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file: { type: 'string', description: 'Absolute path to the APK' },
+        device: { type: 'string', description: 'adb serial, e.g. emulator-5554' }
+      },
+      required: ['file']
+    },
+    handler: async ({ file, device }) => {
+      await fs.access(file);
+      const dev = await adb.pickDevice(device);
+      const info = await adb.inspectApk(file);
+      const out = await adb.install(dev.serial, file);
+      return { ok: true, device: dev.serial, install: out, ...(info || {}) };
+    }
+  });
+
+  add({
+    name: 'ai_test_apk',
+    description: 'Install and exercise an APK: launch it, run scripted tap/assert steps, and report crashes from logcat.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file: { type: 'string', description: 'Absolute path to the APK' },
+        device: { type: 'string', description: 'adb serial (defaults to the first emulator)' },
+        steps: {
+          type: 'array',
+          description: 'Scenario steps: {action:"tapText"|"expectText"|"expectNotText"|"waitForText"|"dump"|"sleep"|"back", ...}',
+          items: { type: 'object' }
+        },
+        launchWaitMs: { type: 'number', description: 'Wait after launch (default 6000)' }
+      },
+      required: ['file']
+    },
+    handler: async ({ file, device, steps, launchWaitMs = 6000 }) => {
+      await fs.access(file);
+      const dev = await adb.pickDevice(device);
+      const info = await adb.inspectApk(file);
+      if (!info || !info.packageName) throw new Error('Could not read the APK package name (aapt missing?)');
+      await adb.install(dev.serial, file);
+      await adb.clearLogcat(dev.serial);
+      await adb.launch(dev.serial, info.packageName, info.launchActivity, launchWaitMs);
+      const scenario = steps && steps.length ? { steps } : { steps: [{ action: 'dump' }] };
+      const report = await adb.runScenario(dev.serial, info.packageName, scenario);
+      return {
+        ok: report.ok,
+        device: dev.serial,
+        emulator: dev.emulator,
+        ...info,
+        ...report,
+        file
+      };
+    }
+  });
+
+  add({
+    name: 'ai_build_and_test',
+    description: 'One-shot loop: compile the APK, download it, install on an emulator, launch it, run assertions, and report crashes.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        device: { type: 'string', description: 'adb serial (defaults to the first emulator)' },
+        steps: { type: 'array', items: { type: 'object' }, description: 'Same steps as ai_test_apk' },
+        timeoutSeconds: { type: 'number', description: 'Compile timeout, default 240' }
+      }
+    },
+    handler: async ({ device, steps, timeoutSeconds = 240 } = {}) => {
+      const buildTool = tools.find((t) => t.name === 'ai_build_apk');
+      const build = await buildTool.handler({ timeoutSeconds });
+      if (!build.ok) return { ok: false, stage: 'build', build };
+
+      const testTool = tools.find((t) => t.name === 'ai_test_apk');
+      const test = await testTool.handler({ file: build.file, device, steps });
+      return { ok: build.ok && test.ok, build, test };
+    }
+  });
+
+  add({
+    name: 'ai_app_logs',
+    description: 'Read crashes and App Inventor runtime errors from the device logcat buffer.',
+    inputSchema: {
+      type: 'object',
+      properties: { device: { type: 'string' } }
+    },
+    handler: async ({ device } = {}) => {
+      const dev = await adb.pickDevice(device);
+      return { device: dev.serial, ...(await adb.readCrashes(dev.serial)) };
+    }
   });
 
   add({

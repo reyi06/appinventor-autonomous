@@ -39,16 +39,7 @@ export function createHub(httpServer, { log = () => {}, remoteFallback = null } 
       }
       if (msg.type === 'hello') {
         meta.hello = { version: msg.version, url: msg.url, project: msg.project, view: msg.view };
-        log(`relay hello ${meta.id}: ${msg.project || '?'} @ ${msg.view || '?'}`);
-        // Drop older relays for the same tab so a command never runs twice.
-        for (const [otherWs, other] of clients) {
-          if (otherWs === ws) continue;
-          if (other.hello && other.hello.url === msg.url) {
-            log(`closing stale relay ${other.id} (same tab as ${meta.id})`);
-            clients.delete(otherWs);
-            try { otherWs.close(); } catch { /* ignore */ }
-          }
-        }
+        log(`relay hello ${meta.id}: ${msg.project || '?'} @ ${msg.view || '?'} (v${msg.version || '?'})`);
         return;
       }
       if (msg.type === 'result') {
@@ -85,8 +76,14 @@ export function createHub(httpServer, { log = () => {}, remoteFallback = null } 
   function pick() {
     const live = liveClients();
     if (live.length === 0) return null;
-    // Prefer a tab that has completed the handshake most recently.
-    live.sort((a, b) => (b.hello ? b.lastSeen : 0) - (a.hello ? a.lastSeen : 0));
+    // Newest relay build wins, then the most recently active tab.
+    // Calls are addressed to a single client, so extra relays never duplicate work.
+    live.sort((a, b) => {
+      const va = a.hello ? String(a.hello.version || '') : '';
+      const vb = b.hello ? String(b.hello.version || '') : '';
+      if (va !== vb) return vb.localeCompare(va, undefined, { numeric: true });
+      return b.lastSeen - a.lastSeen;
+    });
     return live[0];
   }
 
