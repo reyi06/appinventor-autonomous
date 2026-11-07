@@ -36,7 +36,7 @@ Neo UI modes, with the sample in [samples/pizza](samples/pizza):
 ## Install
 
 ```bash
-git clone https://github.com/OWNER/appinventor-autonomous.git
+git clone https://github.com/reyi06/appinventor-autonomous.git
 cd appinventor-autonomous
 npm ci
 ```

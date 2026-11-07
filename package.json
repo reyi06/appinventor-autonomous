@@ -42,10 +42,10 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/OWNER/appinventor-autonomous.git"
+    "url": "https://github.com/reyi06/appinventor-autonomous.git"
   },
   "bugs": {
-    "url": "https://github.com/OWNER/appinventor-autonomous/issues"
+    "url": "https://github.com/reyi06/appinventor-autonomous/issues"
   },
-  "homepage": "https://github.com/OWNER/appinventor-autonomous#readme"
+  "homepage": "https://github.com/reyi06/appinventor-autonomous#readme"
 }
