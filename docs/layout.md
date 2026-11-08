@@ -95,6 +95,59 @@ Screen (AlignHorizontal = center)
 - the column centres as a block via `Root.AlignVertical = center`;
 - the row of controls keeps its own alignment and does not inherit the column's.
 
+## Chrome as assets: what works, what doesn't
+
+App Inventor cannot draw a radius, a shadow or a gradient, but
+`Screen.BackgroundImage`, `Arrangement.Image` and `Button.Image` exist, so design
+tools (FigCraft, Figma, Penpot) can supply the parts the platform can't. This was
+tested end to end on `samples/quiz/` — see `samples/quiz/chrome.figcraft` and
+`samples/quiz/assets/`.
+
+| Surface | Verdict |
+| --- | --- |
+| `Screen.BackgroundImage` | **works** — a gradient or texture behind everything, content-free by definition |
+| `Arrangement.Image` on an empty or pure-decoration container | works |
+| `Arrangement.Image` on a container that also holds widgets | **fights the content** — see below |
+| `Button.BackgroundImage` | **does not exist.** A `Button` exposes `Image` (an icon above the label) and `Shape`, nothing else |
+| Icons via `Image` / `Button.Image` | works, and is the cheapest real win |
+
+### Why a card image fights its content
+
+The bitmap is stretched to the arrangement's box and the widgets are laid out
+from that box's origin. So:
+
+- art with a shadow margin draws the white card *inset*, while the first label
+  sits at the very top of the box — above the card;
+- making the art edge-to-edge fixes that, but then the labels touch the rounded
+  corners;
+- insetting the children instead (`Width: 90%` + `AlignHorizontal: center`) works
+  in principle, but every child needs the rule, and one missed child clips.
+
+The clean way to have both art and widgets is to stop using the arrangement as a
+card: put the art in an `AbsoluteArrangement` as one layer and the widgets in a
+second, since that is the only place App Inventor stacks layers.
+
+### Asset swaps are cached
+
+Replacing `card.png` and pressing *Refresh Companion Screen* keeps showing the
+old bitmap. Only restarting the Companion (or rebuilding the APK) re-fetches it,
+which makes iterating on artwork slower than iterating on layout.
+
+### Practical recipe
+
+1. Design the **content-free** chrome: screen background/gradient, header band,
+   dividers, icon glyphs, illustrations.
+2. Export PNG at the target dp × the device density (`file.export` with
+   `size: {by: "scale", value: 3}` for xxhdpi), into the repo, then
+   `ai_asset { action: "upload" }`.
+3. Reload the editor tab before picking the asset in any dropdown — the asset
+   list is cached in the client.
+4. Keep containers flat-coloured; put radius and shadow on art that has no
+   children.
+
+`samples/quiz/make-logo.mjs` shows the same idea without a design tool: a PNG
+generated in code, uploaded, and used by an `Image`.
+
 ## What the compiler does with this
 
 `ai_layout` (the Layout IR) models containers, alignment, gaps, grids and

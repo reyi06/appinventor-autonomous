@@ -69,16 +69,21 @@
 - `docs/compat.md`, `SECURITY.md`, `CONTRIBUTING.md`, `LICENSE` (MIT), CI on node 20 + 22.
 
 ### Docs
-- `docs/layout.md` — the six layout components, the seven properties a
-  `VerticalArrangement` actually has, and the rules that follow: position with the
+- `docs/layout.md` — the six layout components, the seven properties a  `VerticalArrangement` actually has, and the rules that follow: position with the
   alignment grid, `Fill parent` only works on the last child, percentages are
   screen-relative, spacing is structure. Written after a design pass kept fighting
   the box model.
 - `docs/live-preview.md` — the ~4 s Companion loop: what MIT's setup package
   installs, `aiStarter` on port 8004, why HAXM is not wanted, and the refresh
   rules for new components.
-- `docs/clients.md` — Claude Code, Codex, Cursor, Windsurf, VS Code and OpenCode
+- `docs/clients.md` - Claude Code, Codex, Cursor, Windsurf, VS Code and OpenCode
   configs, what each client surfaces, and what a client must not get wrong.
+- `docs/layout.md` gained "Chrome as assets": design tools can supply the radius, shadow and
+  gradient App Inventor cannot draw, but a bitmap on a container stretches to the container's
+  box and does not inset the widgets inside it — so chrome works for content-free surfaces
+  (screen background, header band, icons) and fights the content everywhere else. A `Button`
+  has no `BackgroundImage` at all, only `Image` (an icon). `samples/quiz/chrome.figcraft` and
+  `samples/quiz/assets/` hold the source and the exported PNGs from that test.
 
 ## 2.0.0 - tool surface consolidation
 
