@@ -242,8 +242,7 @@ const quizScreen = [
       ), stack: seq(
         setVar('score', add(getVar('score'), num(1))),
         setProp('FeedbackLabel', 'Label', 'Text', txt('Correct!')),
-        setProp('FeedbackLabel', 'Label', 'TextColor', green()),
-        alert(txt('Correct!'))
+        setProp('FeedbackLabel', 'Label', 'TextColor', green())
       ) }],
       seq(
         setProp('FeedbackLabel', 'Label', 'Text', joinN(

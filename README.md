@@ -240,8 +240,11 @@ samples/                pizza/ — the block generator and its output (no binari
 | [docs/mcp-tools.md](docs/mcp-tools.md) | every tool and action |
 | [docs/architecture.md](docs/architecture.md) | server → relay → editor, and why |
 | [docs/designer.md](docs/designer.md) | designer automation and its limits |
+| [docs/layout.md](docs/layout.md) | the six layout components and the rules they follow |
 | [docs/blocks.md](docs/blocks.md) | block authoring rules and recipes |
 | [docs/build-and-test.md](docs/build-and-test.md) | compiling and device testing |
+| [docs/live-preview.md](docs/live-preview.md) | the 4-second loop: Companion + emulator |
+| [docs/clients.md](docs/clients.md) | Claude Code, Codex, Cursor, VS Code, OpenCode |
 | [docs/compat.md](docs/compat.md) | what survives an App Inventor release |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | failure catalogue |
 | [SECURITY.md](SECURITY.md) | trust boundaries and controls |

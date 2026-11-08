@@ -48,8 +48,7 @@
   components in the background, and the next batch collided with it.
 
 ### Added
-- **Colour, typeface, alignment and shape properties are settable.** The relay drives the
-  colour picker (Pickr: type the hex, Save) and the choice `DropDownButton` menus, so
+- **Colour, typeface, alignment and shape properties are settable.** The relay drives the  colour picker (Pickr: type the hex, Save) and the choice `DropDownButton` menus, so
   `BackgroundColor`, `TextColor`, `Shape`, `AlignHorizontal` and `TextAlignment` all work
   through `ai_component { action: "set" }`. Colour writes are verified by re-reading the
   picker, because the property panel cannot display a custom colour (it repaints as
@@ -68,6 +67,18 @@
 - `samples/corpus/` - 16 real projects from `mit-cml/appinventor-sources` and
   `npm run corpus` (129 offline checks). The first run found a CRLF bug in `parseScm`.
 - `docs/compat.md`, `SECURITY.md`, `CONTRIBUTING.md`, `LICENSE` (MIT), CI on node 20 + 22.
+
+### Docs
+- `docs/layout.md` — the six layout components, the seven properties a
+  `VerticalArrangement` actually has, and the rules that follow: position with the
+  alignment grid, `Fill parent` only works on the last child, percentages are
+  screen-relative, spacing is structure. Written after a design pass kept fighting
+  the box model.
+- `docs/live-preview.md` — the ~4 s Companion loop: what MIT's setup package
+  installs, `aiStarter` on port 8004, why HAXM is not wanted, and the refresh
+  rules for new components.
+- `docs/clients.md` — Claude Code, Codex, Cursor, Windsurf, VS Code and OpenCode
+  configs, what each client surfaces, and what a client must not get wrong.
 
 ## 2.0.0 - tool surface consolidation
 
