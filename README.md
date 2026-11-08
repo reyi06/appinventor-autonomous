@@ -1,29 +1,25 @@
 # appinventor-autonomous
 
-An MCP server that drives **MIT App Inventor** directly: it creates projects, edits the
-Designer, writes Blockly code, exports `.aia`, compiles APKs, installs them on an
-emulator, and runs UI assertions — all from an agent.
+**An MCP server for MIT App Inventor.**
+
+[MCP](docs/clients.md) is the Model Context Protocol — the tool interface Claude Code, Codex,
+Cursor, Windsurf, VS Code and OpenCode all speak. This server exposes a live App Inventor
+session through it: **13 tools** that create projects, place components, set properties, write
+Blockly, validate the result, compile an APK, install it on an emulator and assert on the UI.
+
+It is an MCP server in the strict sense: it holds no model of its own. The 6 prompts and 10
+resources are optional conveniences — the tools are the product. Point any MCP client at it and
+the App Inventor editor becomes something an agent can operate.
 
 App Inventor stays the source of truth. Nothing is re-implemented offline: every edit goes
 through the live editor (GWT designer, Blockly workspace, official upload/download and build
-endpoints) and is then read back and verified.
-
-## What it builds
-
-<p align="center">
-  <img src="docs/img/quizmaster.png" alt="A quiz app built end to end: a generated icon, a form with pill fields, a custom header and a bottom tab bar" width="300">
-</p>
-
-The app above — three screens, 61 components, 281 blocks, an uploaded PNG icon, TinyDB
-persistence, a countdown and a bottom tab bar — was built with these tools and nothing else.
-The design follows the idioms measured from production App Inventor projects
-([docs/layout.md](docs/layout.md)); the block XML is generated
-([samples/quiz](samples/quiz)) and verified on an emulator.
+endpoints) and is then read back and verified — the tool reports success only when the editor
+or the exported project agrees.
 
 ## Status
 
 Verified end to end on `ai2a.appinventor.mit.edu` (Form `$Version 32`), in both Classic and
-Neo UI modes, with the sample in [samples/pizza](samples/pizza):
+Neo UI modes, against the apps in [samples/](samples):
 
 | Capability | State |
 | --- | --- |
