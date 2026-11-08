@@ -195,3 +195,35 @@ whereas a vertical column only gives it to the last child.
 15/16/24/36, bold for emphasis, and two custom `.ttf` files in `assets/`. Nothing is ad-hoc.
 
 The QuizMaster sample applies the navbar and field idioms; its card is still a flat colour.
+
+## Measured across five real apps
+
+`samples/ui-corpus/report.mjs` parses five production projects (Connect Four, Hangman, Square Game,
+Drawing, MIT's MoleMash) and counts what they actually do. The numbers contradicted two things this
+document had assumed.
+
+| Measurement | Five projects | What it means |
+| --- | --- | --- |
+| Sizes | **fixed pixels, 100%** (11–44 declarations each) | zero percentages, zero `Fill parent` — responsive sizing is a newer idiom, not the norm |
+| Transparent backgrounds | every project, 3–11 uses of `&H00FFFFFF` | the transparency lever is universal |
+| Art on an arrangement | **0/5** | the card-image idiom is rare; the finance app that uses it is an outlier |
+| Nesting depth | 2–4 | headers and cards go three or four levels, not ten |
+| Alignment | `AlignHorizontal=3` (centre) dominates, then `AlignVertical=2` | centring is done with alignment, never with spacer Labels |
+| Title bar | visible in **all five** | `TitleVisible=False` is a deliberate "designed app" choice, not the default |
+| Canvas | 1–2 per game | board games are sprites on a Canvas (Connect Four is 8 Balls), because that is the only absolute positioning available |
+| Block volume | 993–1377 for games, 35–58 for utilities | 6–18 handlers, 19–21 globals, 12–24 procedures |
+
+### What the blocks say about interaction
+
+- Games are **math and lists**: `math_number`, `lexical_variable_get`, `lists_select_item`,
+  `lists_create_with` dominate; the UI is a thin layer over state.
+- Data entry happens through **modal dialogs**, not forms: `Notifier.AfterTextInput` and
+  `Notifier.AfterChoosing` appear in four of five projects.
+- Gesture handlers (`Canvas.Touched`, `Canvas.Dragged`) replace buttons wherever position matters.
+
+### What this changed here
+
+- Sizing: the sample keeps percentages (they work, and the project is responsive), but this document
+  no longer claims they are what real apps use — most do not.
+- Hero numbers are legitimate: one project sets a label to font size 301 for a headline figure.
+- Card artwork stays the exception, used where the content is *inside* a padded inner arrangement.
