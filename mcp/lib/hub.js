@@ -213,5 +213,10 @@ export function createHub(httpServer, { log = () => {}, remoteFallback = null, e
     if (wss) wss.close();
   }
 
-  return { call, status, close, wss, clientCount: () => liveClients().length };
+  /** The bridge this instance forwards to when it could not bind the port. */
+  function remote() {
+    return typeof remoteFallback === 'function' ? remoteFallback() : (remoteFallback || null);
+  }
+
+  return { call, status, close, wss, remote, clientCount: () => liveClients().length };
 }

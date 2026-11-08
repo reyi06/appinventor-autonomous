@@ -101,11 +101,30 @@ export function createTools(ctx) {
     description: 'Check whether the App Inventor relay is connected, which project/screen tab is live, and how to inject the relay.',
     inputSchema: { type: 'object', properties: {} },
     handler: async () => {
-      const clients = hub.status();
-      const connected = clients.filter((c) => c.connected).length;
+      let clients = hub.status();
+      let connected = clients.filter((c) => c.connected).length;
+      // A second server instance cannot bind the port and forwards to the first,
+      // so its own client list is empty even while everything works. Ask the
+      // bridge that actually owns the relay.
+      let via = 'local';
+      const remote = hub.remote ? hub.remote() : null;
+      if (connected === 0 && remote) {
+        try {
+          const res = await fetch(`${remote}/health`);
+          const data = await res.json();
+          if (data && Array.isArray(data.clients)) {
+            clients = data.clients;
+            connected = clients.filter((c) => c.connected).length;
+            via = 'remote';
+          }
+        } catch {
+          /* fall back to the local view */
+        }
+      }
       return {
         ok: connected > 0,
         connectedTabs: connected,
+        via,
         clients,
         workDir,
         // The POST endpoints execute tools, so they need the bearer token that
