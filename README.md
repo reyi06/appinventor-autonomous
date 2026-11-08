@@ -8,6 +8,18 @@ App Inventor stays the source of truth. Nothing is re-implemented offline: every
 through the live editor (GWT designer, Blockly workspace, official upload/download and build
 endpoints) and is then read back and verified.
 
+## What it builds
+
+<p align="center">
+  <img src="docs/img/quizmaster.png" alt="A quiz app built end to end: a generated icon, a form with pill fields, a custom header and a bottom tab bar" width="300">
+</p>
+
+The app above — three screens, 61 components, 281 blocks, an uploaded PNG icon, TinyDB
+persistence, a countdown and a bottom tab bar — was built with these tools and nothing else.
+The design follows the idioms measured from production App Inventor projects
+([docs/layout.md](docs/layout.md)); the block XML is generated
+([samples/quiz](samples/quiz)) and verified on an emulator.
+
 ## Status
 
 Verified end to end on `ai2a.appinventor.mit.edu` (Form `$Version 32`), in both Classic and
