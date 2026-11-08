@@ -94,3 +94,42 @@ the second instance forwards `POST /relay-call` with the same bearer token.
 open a socket without an allowed `Origin`. `GET /health` stays public but is unreadable
 cross-origin, because CORS reflects only allowed origins.
 
+## Editor surfaces the relay drives
+
+Each surface was found by inspecting the live page (and confirmed against
+`mit-cml/appinventor-sources`), never assumed:
+
+| Surface | How it is driven | How the result is verified |
+| --- | --- | --- |
+| Palette | double-click, or the component's "+" | component appears in the exported `.scm` |
+| Property rows | text/checkbox/asset editors | row read-back, polled up to 3 s |
+| Choice properties (alignment, shape, typeface, theme) | the `DropDownButton` menu, one click each | row caption |
+| Colour properties | the colour picker (`Pickr`): type the hex, press Save | **re-read from the picker** — the panel cannot display a custom colour and repaints as "Default" |
+| Project properties (theme, palette, app name, version) | the **Project Properties dialog**; one dialog per property | re-export and compare |
+| Screens | the toolbar selector | live model (`previous`/`current`) |
+| Blocks | `Blockly.Xml.domToWorkspace` | editor diagnostics plus the saved `.bky` |
+| Assets | `POST /ode/upload/file/<pid>/<path>` | the exported `.aia` |
+
+Two consequences shaped the design:
+
+- **Some surfaces cannot be trusted as their own oracle.** The colour panel is lossy, so a
+  colour write is verified by re-opening the picker; the property file is rewritten by the
+  editor, so project properties are verified by re-exporting. When neither can confirm, the
+  tool returns `verified: false` with the reason instead of claiming success.
+- **The file is not always the source of truth.** `youngandroidproject/project.properties`
+  returns success on write and is then overwritten; the dialog is the writer that sticks.
+  See `docs/designer.md`.
+
+## Verification model
+
+Every mutating tool follows the same shape:
+
+1. **Checkpoint** destructive writes to `checkpoints/*.aia`.
+2. **Act** on the real editor surface.
+3. **Read back** from the most authoritative place available (row, live model, saved file).
+4. **Report** `verified: true` only when the read matches; otherwise an error or an explicit
+   `unverified`/`unsupported` entry.
+
+`ai_validate` is the project-level version of the same idea: it reads the exported `.aia`
+and the editor's own diagnostics, so a mismatch between what the tools think they did and
+what the project contains is reported rather than hidden.

@@ -10,3 +10,5 @@ checkpoints/
 screenshots/
 # third-party sample projects: fetch locally, never commit
 samples/ui-corpus/*.aia
+
+*.tgz

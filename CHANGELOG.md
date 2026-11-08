@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 2.1.0 - 2026-11-08
+
+Designer breadth: colour, choice and project properties are now automatable, screen
+switching works, and the loop that verifies a change against the running app is short
+enough to use while designing.
 
 ### Security
 - **The loopback listener is now authenticated.** Binding `127.0.0.1` keeps the server off the
@@ -81,6 +85,21 @@
 - `samples/corpus/` - 16 real projects from `mit-cml/appinventor-sources` and
   `npm run corpus` (129 offline checks). The first run found a CRLF bug in `parseScm`.
 - `docs/compat.md`, `SECURITY.md`, `CONTRIBUTING.md`, `LICENSE` (MIT), CI on node 20 + 22.
+
+### UI
+
+- QuizMaster was rebuilt against idioms measured from production projects
+  (`samples/ui-corpus/`): a bottom bar of `Image` + `Label` columns (the icon is the hit
+  target, so no `Button.Image` scaling), form fields as `outer(image) → inner(transparent)`
+  with `&H00FFFFFF` widgets, `TitleVisible=False` with the content drawing its own header,
+  and a progress bar built from a track row plus a fill label whose width the blocks compute
+  (pixel widths — a percentage in blocks resolves against the screen, not the bar).
+- The result screen's score is a hero number (72 pt), which is how the corpus apps treat a
+  headline figure.
+- Fixed a percentage trap that had shipped into the sample: `92%` inside a 317 dp field is
+  331 dp, because percentages resolve against the *screen*; it clipped the first character and
+  let a transparent `Spinner` paint black past the pill.
+- `docs/layout.md` gained *What a real project does* and *Measured across five real apps*.
 
 ### Docs
 - `docs/layout.md` — the six layout components, the seven properties a  `VerticalArrangement` actually has, and the rules that follow: position with the

@@ -1,6 +1,6 @@
 {
   "name": "appinventor-autonomous",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "MCP server that drives MIT App Inventor: designer, Blockly, .aia export, APK build and emulator testing.",
   "type": "module",
   "main": "mcp/server.js",
@@ -14,7 +14,8 @@
     "docs/",
     "README.md",
     "LICENSE",
-    "SECURITY.md"
+    "SECURITY.md",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "start": "node mcp/server.js",
@@ -33,13 +34,12 @@
   "license": "MIT",
   "keywords": [
     "mcp",
-    "model-context-protocol",
     "app-inventor",
-    "blockly",
     "android",
-    "apk",
-    "ai2",
-    "no-code"
+    "low-code",
+    "blockly",
+    "automation",
+    "agent"
   ],
   "repository": {
     "type": "git",

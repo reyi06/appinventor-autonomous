@@ -234,6 +234,17 @@ const quizScreen = [
     setProp('ProgressLabel', 'Label', 'Text', joinN(
       txt('Question '), getVar('index'), txt(' of '), listLength(getVar('questions'))
     )),
+    // Progress bar: 88% of the screen width, scaled by index/total. Widths in
+    // blocks are pixels, so the percentage has to be computed here.
+    setProp('ProgressFill', 'Label', 'Width', block('math_division', {
+      values: {
+        A: block('math_multiply', { values: {
+          NUM0: getProp('HABar', 'HorizontalArrangement', 'Width'),
+          NUM1: getVar('index')
+        } }),
+        B: listLength(getVar('questions'))
+      }
+    })),
     setProp('FeedbackLabel', 'Label', 'Text', txt('')),
     setVar('secondsLeft', num(15)),
     setProp('TimerLabel', 'Label', 'Text', joinN(getVar('secondsLeft'), txt('s')))

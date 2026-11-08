@@ -18,7 +18,10 @@ Neo UI modes, with the sample in [samples/pizza](samples/pizza):
 | Create / import / export projects | works |
 | Read component tree + every property | works (authoritative `.scm`) |
 | Add / remove / rename components, nest in containers | works, verified after each change |
-| Set designer properties (text, number, bool, choice) | works |
+| Set designer properties (text, number, bool, length) | works |
+| Set **choice** properties (alignment, shape, typeface) | works — drives the `DropDownButton` menu |
+| Set **colour** properties | works — drives the colour picker; verified by re-reading the picker, because the panel cannot display a custom colour |
+| **Project properties** (theme, primary/dark/accent colour, app name, version) | works via the Project Properties dialog; `PrimaryColorDark` reported as unsupported |
 | Asset upload (PNG/SVG/audio/video/JSON) | works, verified in the exported `.aia` and the APK |
 | Layout IR compiler (JSON spec → screen) | works, with a fidelity report |
 | Read / replace / append / clear Blockly code | works |
@@ -28,20 +31,37 @@ Neo UI modes, with the sample in [samples/pizza](samples/pizza):
 | Static validation + safe auto-repair | works |
 | Add screen | works |
 | Remove screen | only the screen currently open in the Designer |
-| Switch screens | works - verified against the live model, returns `previous`/`current` |
+| Switch screens | works — verified against the live model, returns `previous`/`current` |
+| Live preview while editing | ~4 s per change via the AI2 Companion, see [docs/live-preview.md](docs/live-preview.md) |
 | MCP prompts (6 workflows) and resources (10 URIs) | works |
 | Self-test against the live editor | works (`ai_selftest`) |
-| Colour/typeface/alignment pickers | not automatable — reported, never faked |
+| Component **extensions** (`.aix`) | not implemented — the palette slot is there, the import is not |
+
+## Download
+
+Three ways in, all the same server:
+
+```bash
+# 1. a release tarball (no git, no build step)
+curl -L -o appinventor-autonomous.tgz \
+  https://github.com/reyi06/appinventor-autonomous/releases/latest/download/appinventor-autonomous.tgz
+tar -xzf appinventor-autonomous.tgz && cd package && npm ci
+
+# 2. the CLI, once published to npm
+npx appinventor-mcp --print-config
+
+# 3. a clone, if you want the tests and the samples
+git clone https://github.com/reyi06/appinventor-autonomous.git
+cd appinventor-autonomous && npm ci
+```
+
+Every release is built from a tagged commit by CI, which also runs the protocol,
+security and corpus suites before the tarball exists.
 
 ## Install
 
-```bash
-git clone https://github.com/reyi06/appinventor-autonomous.git
-cd appinventor-autonomous
-npm ci
-```
-
-Add it to your MCP client (Claude Code, Codex, Cursor, OpenCode — anything that speaks MCP):
+Add the server to your MCP client — see [docs/clients.md](docs/clients.md) for
+Claude Code, Codex, Cursor, Windsurf, VS Code and OpenCode:
 
 ```json
 {
@@ -59,6 +79,7 @@ Add it to your MCP client (Claude Code, Codex, Cursor, OpenCode — anything tha
 
 Requirements: **Node 20+**, a Chromium browser, and an App Inventor account. Android builds
 and device testing additionally need the Android SDK (`adb`, plus `build-tools` for `aapt`).
+The live-preview loop optionally uses MIT's setup package — [docs/live-preview.md](docs/live-preview.md).
 
 ### Local listener
 
@@ -247,5 +268,6 @@ samples/                pizza/ — the block generator and its output (no binari
 | [docs/clients.md](docs/clients.md) | Claude Code, Codex, Cursor, VS Code, OpenCode |
 | [docs/compat.md](docs/compat.md) | what survives an App Inventor release |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | failure catalogue |
+| [docs/release.md](docs/release.md) | publishing checklist |
 | [SECURITY.md](SECURITY.md) | trust boundaries and controls |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | how to test against a live editor |
