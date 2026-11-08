@@ -15,7 +15,7 @@
   'use strict';
 
   var VERSION = '1.3.3';
-  var BUILD = '2026-11-09.14'; // implementation revision: changing this replaces a live instance
+  var BUILD = '2026-11-09.20'; // implementation revision: changing this replaces a live instance
   var WS_URL = window.__AI_RELAY_WS__ || 'ws://127.0.0.1:8766';
   var PREFIX = '[ai-relay]';
 
@@ -1127,6 +1127,174 @@
           projectName: parts[4] || null
         };
       });
+  };
+
+  /**
+   * Set project-level properties through the Project Properties dialog.
+   *
+   * Writing youngandroidproject/project.properties directly does NOT work for
+   * the colour properties and theme: the file is rewritten from the client's
+   * settings, so the change is reverted (the theme appears to survive only
+   * because it is also mirrored in each .scm). The dialog is what the editor
+   * itself uses, and its values persist.
+   */
+  /**
+   * Set project-level properties through the Project Properties dialog.
+   *
+   * Writing youngandroidproject/project.properties directly does NOT work for
+   * the colour properties: the file is rewritten from the editor's settings and
+   * the change is reverted. The dialog is what the editor itself uses, and its
+   * values persist.
+   *
+   * One dialog per property on purpose. Three colour pickers driven in one
+   * dialog session overwrite each other (they share Pickr panels), and the
+   * first write into a freshly opened dialog can be dropped.
+   */
+  H['project.setProperties'] = function (p) {
+    var wanted = (p && p.props) || {};
+    var keys = Object.keys(wanted);
+    if (!keys.length) throw new Error('props required');
+
+    // Theme captions from YoungAndroidThemeChoicePropertyEditor.
+    var THEME_CAPTIONS = {
+      'Classic': 'Classic',
+      'AppTheme.Light.DarkActionBar': 'Device Default',
+      'AppTheme.Light': 'Black Title Text',
+      'AppTheme': 'Dark'
+    };
+
+    var TITLES = {
+      theme: 'Theme',
+      'color.primary': 'PrimaryColor',
+      'color.primary.dark': 'PrimaryColorDark',
+      'color.accent': 'AccentColor',
+      aname: 'AppName',
+      versioncode: 'VersionCode',
+      versionname: 'VersionName'
+    };
+
+    function sameValueInDialog(a, b) {
+      if (a == null) return false;
+      var x = String(a).trim().toLowerCase();
+      var y = String(b).trim().toLowerCase();
+      if (x === y) return true;
+      function argb(v) {
+        var m = v.match(/^&h([0-9a-f]{8})$/);
+        if (m) return m[1];
+        m = v.match(/^#([0-9a-f]{6})$/);
+        if (m) return 'ff' + m[1];
+        m = v.match(/^#([0-9a-f]{8})$/);
+        if (m) return m[1];
+        return null;
+      }
+      var ca = argb(x);
+      var cb = argb(y);
+      return !!(ca && cb && ca === cb);
+    }
+
+    function dialogEl() {
+      return document.querySelector('.ode-DialogBox, .gwt-DialogBox');
+    }
+
+    function containerIn(dlg, title) {
+      var found = null;
+      dlg.querySelectorAll('.ode-propertyDialogPropertyContainer').forEach(function (c) {
+        var t = c.querySelector('.ode-propertyDialogPropertyTitle');
+        if (found || !t) return;
+        if ((t.textContent || '').trim().toLowerCase() === title.toLowerCase()) found = c;
+      });
+      return found;
+    }
+
+    function readContainer(c) {
+      var editor = c.querySelector('.ode-propertyDialogPropertyEditor');
+      // Choice captions render with a caret ("Device Default \u25be").
+      if (editor) return (editor.textContent || '').replace(/\s*\u25be\s*$/, '').trim().replace(/\s+/g, ' ');
+      var input = c.querySelector('input');
+      if (input && input.type === 'checkbox') return input.checked;
+      return input ? input.value : null;
+    }
+
+    function closeDialog() {
+      var dlg = dialogEl();
+      if (!dlg) return Promise.resolve();
+      var close = null;
+      dlg.querySelectorAll('button, .gwt-Button').forEach(function (b) {
+        if (!close && (b.textContent || '').trim() === 'Close') close = b;
+      });
+      if (close) clickOnce(close);
+      return sleep(300).then(function () {
+        if (document.querySelector('.ode-DialogBox, .gwt-DialogBox')) {
+          closePopups();
+          return sleep(200);
+        }
+        return null;
+      });
+    }
+
+    /** Open the dialog, set one property, read it back, close. */
+    function setOne(key, value) {
+      var title = TITLES[key] || key;
+      return closeDialog().then(function () {
+        var button = findButton('Project Properties');
+        if (!button) throw new Error('Project Properties button not found');
+        clickOnce(button);
+        return waitFor(dialogEl, 6000);
+      }).then(function (dlg) {
+        return sleep(600).then(function () { return dlg; });
+      }).then(function (dlg) {
+        var c = containerIn(dlg, title);
+        if (!c) throw new Error('No "' + title + '" in Project Properties (key ' + key + ')');
+        var editor = c.querySelector('.ode-propertyDialogPropertyEditor');
+        if (!editor) {
+          var input = c.querySelector('input');
+          if (!input) throw new Error('No editor for ' + title);
+          input.focus();
+          input.value = String(value);
+          fire(input, 'input');
+          fire(input, 'change');
+          input.blur();
+          return sleep(150).then(function () { return readContainer(c); });
+        }
+        var isColour = /^(&H|#)/i.test(String(value));
+        var asCaption = key === 'theme' ? (THEME_CAPTIONS[String(value)] || String(value)) : String(value);
+        return Promise.resolve(isColour ? setColorProperty(editor, String(value)) : setChoiceProperty(editor, asCaption))
+          .then(function () { return sleep(250); })
+          .then(function () { return readContainer(c); });
+      }).then(function (read) {
+        return closeDialog().then(function () { return read; });
+      });
+    }
+
+    var applied = {};
+    var unsupported = [];
+    var chain = Promise.resolve();
+    keys.forEach(function (key) {
+      chain = chain.then(function () {
+        var expected = key === 'theme' ? (THEME_CAPTIONS[String(wanted[key])] || String(wanted[key])) : wanted[key];
+        return setOne(key, wanted[key]).then(function (read) {
+          if (sameValueInDialog(read, expected)) {
+            applied[key] = read;
+            return null;
+          }
+          // Second attempt in a fresh dialog: a dropped first write is common.
+          return setOne(key, wanted[key]).then(function (read2) {
+            if (!sameValueInDialog(read2, expected)) {
+              unsupported.push({
+                key: key,
+                requested: String(wanted[key]),
+                actual: read2,
+                reason: 'the Project Properties editor accepted the picker but never applied the value (this build derives it from the theme)'
+              });
+              return null;
+            }
+            applied[key] = read2;
+          });
+        });
+      });
+    });
+
+    return chain.then(function () { return { applied: applied, unsupported: unsupported }; });
   };
 
   H['project.uploadAsset'] = function (p) {

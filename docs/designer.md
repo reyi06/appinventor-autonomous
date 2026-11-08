@@ -126,3 +126,34 @@ closes the build-result dialog itself.
 
 Each designer mutation costs roughly 0.5–2 s (GWT re-render + verification). Batch related
 changes in a single agent turn rather than one call per property when latency matters.
+
+## Project properties: the dialog is the writer
+
+`theme` and `color.*` live in `youngandroidproject/project.properties`, but writing that file
+through the upload endpoint does **not** persist: the editor rewrites it from its own settings, so
+the change is reverted. (The theme appears to survive only because it is mirrored in each screen's
+`Theme` property.) Measured directly: the file patch returns success, and the next export still has
+`color.primary=&HFF3F51B5`.
+
+`ai_project { action: "properties", set }` therefore drives the **Project Properties dialog** for
+`theme`, `color.primary`, `color.primary.dark`, `color.accent`, `aname`, `versioncode` and
+`versionname`, then re-reads the exported project and reports any key whose value did not stick
+(`unverified`) instead of claiming success. Other keys still go through the file patch.
+
+Things the dialog does differently from the stored values:
+
+| Stored value | Dialog caption |
+| --- | --- |
+| `AppTheme.Light.DarkActionBar` (the default) | **Device Default** |
+| `AppTheme.Light` | Black Title Text |
+| `AppTheme` | Dark |
+| `Classic` | Classic |
+
+- **One dialog per property.** Three colour pickers driven in a single dialog session overwrite
+  each other (they share Pickr panels), and the first write into a freshly opened dialog is
+  sometimes dropped. Each write is verified and retried once in a fresh dialog.
+- **`PrimaryColorDark` cannot be set** in this build: its editor accepts the picker interaction but
+  never fires its change handler, and the value is derived from the theme. It is reported as
+  `unsupported` rather than failing the call.
+- Colours are read back from the dialog's own editor caption, which shows `#FFRRGGBB`; the property
+  file may take a moment to catch up, so verification re-exports the project.

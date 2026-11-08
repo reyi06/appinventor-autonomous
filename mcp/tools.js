@@ -1457,57 +1457,83 @@ export function createTools(ctx) {
       const propBuf = files.get(propPath);
       if (!propBuf) throw new Error('project.properties not found in the export');
 
-      const props = parseProperties(propBuf.toString('utf8'));
+      let props = parseProperties(propBuf.toString('utf8'));
       const before = { ...props };
       const changes = {};
+      let snap = null;
+      let dialogApplied = null;
+      const unverified = [];
 
       if (set && typeof set === 'object' && Object.keys(set).length) {
-        for (const [k, v] of Object.entries(set)) props[k] = String(v);
-
-        // A non-Classic theme requires the action bar; Classic disables it.
-        if (set.theme) props.actionbar = set.theme === 'Classic' ? 'False' : 'True';
-
-        const snap = await checkpoint('properties');
-
-        await call('project.uploadAsset', {
-          name: 'project.properties',
-          base64: Buffer.from(serializeProperties(props)).toString('base64'),
-          mime: 'text/plain',
-          path: propPath
-        }, 60000);
-
-        // Keep each screen's Theme property in step, so the designer and the
-        // build agree and the next autosave cannot revert the change.
-        if (set.theme) {
-          for (const [p, buf] of files) {
-            if (!p.endsWith('.scm')) continue;
-            const text = buf.toString('utf8');
-            const patched = text.includes('"Theme"')
-              ? text.replace(/"Theme":"[^"]*"/, `"Theme":"${set.theme}"`)
-              : text.replace(/"\$Type":"Form",/, `"$Type":"Form","Theme":"${set.theme}",`);
-            if (patched === text) continue;
-            await call('project.uploadAsset', {
-              name: p.split('/').pop(),
-              base64: Buffer.from(patched).toString('base64'),
-              mime: 'text/plain',
-              path: p
-            }, 60000);
-          }
+        // theme and color.* only persist through the Project Properties dialog;
+        // writing project.properties directly is reverted by the editor.
+        const DIALOG_KEYS = ['theme', 'color.primary', 'color.primary.dark', 'color.accent', 'aname', 'versioncode', 'versionname'];
+        const viaDialog = {};
+        const viaFile = {};
+        for (const [k, v] of Object.entries(set)) {
+          if (DIALOG_KEYS.includes(k)) viaDialog[k] = v;
+          else viaFile[k] = v;
         }
 
+        snap = Object.keys(viaDialog).length || Object.keys(viaFile).length
+          ? await checkpoint('properties')
+          : null;
+
+        if (Object.keys(viaDialog).length) {
+          dialogApplied = await call('project.setProperties', { props: viaDialog }, 120000);
+        }
+
+        if (Object.keys(viaFile).length) {
+          for (const [k, v] of Object.entries(viaFile)) props[k] = String(v);
+          await call('project.uploadAsset', {
+            name: 'project.properties',
+            base64: Buffer.from(serializeProperties(props)).toString('base64'),
+            mime: 'text/plain',
+            path: propPath
+          }, 60000);
+        }
+
+        // Re-read from the project rather than trusting what we just wrote.
+        const after = await fetchProject();
+        const afterProps = parseProperties(after.files.get(propPath).toString('utf8'));
+        props = afterProps;
+
+        const colourKey = (v) => {
+          const s = String(v == null ? '' : v).trim();
+          let m = s.match(/^&H([0-9A-Fa-f]{8})$/);
+          if (m) return m[1].toUpperCase();
+          m = s.match(/^#([0-9A-Fa-f]{6})$/);
+          if (m) return ('FF' + m[1]).toUpperCase();
+          m = s.match(/^#([0-9A-Fa-f]{8})$/);
+          if (m) return m[1].toUpperCase();
+          return null;
+        };
+        const same = (a, b) => {
+          const ca = colourKey(a);
+          const cb = colourKey(b);
+          if (ca && cb) return ca === cb;
+          return String(a == null ? '' : a).toLowerCase() === String(b == null ? '' : b).toLowerCase();
+        };
+
         for (const k of Object.keys(set)) {
-          if (before[k] !== props[k]) changes[k] = { from: before[k] ?? null, to: props[k] };
+          const now = props[k];
+          if (!same(before[k], now)) changes[k] = { from: before[k] ?? null, to: now };
+          if (!same(set[k], now)) {
+            unverified.push({ key: k, requested: String(set[k]), actual: now ?? null });
+          }
         }
       }
 
       return {
-        ok: true,
+        ok: unverified.length === 0,
         projectName,
         projectId,
         theme: props.theme || '(default)',
         properties: props,
         changes,
-        checkpoint: typeof snap !== 'undefined' ? snap : null,
+        dialog: dialogApplied,
+        unverified,
+        checkpoint: snap,
         reloadRequired: Object.keys(changes).length > 0,
         note: Object.keys(changes).length
           ? 'Project files updated. Reload the App Inventor tab, then rebuild for the change to reach the APK.'

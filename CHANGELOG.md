@@ -18,6 +18,20 @@
   including a real WebSocket handshake from a foreign origin.
 
 ### Fixed
+- **`color.primary` and friends now persist.** Writing `youngandroidproject/project.properties`
+  through the upload endpoint returns success and is then reverted by the editor, so a themed app
+  always fell back to the default indigo — the one visible defect left from the design pass.
+  `ai_project { action: "properties", set }` now drives the **Project Properties dialog** for
+  `theme`, `color.*`, `aname` and the version fields, then re-reads the exported project and
+  reports any key that did not stick instead of claiming success. One dialog per property: three
+  colour pickers in one session overwrite each other, and the first write into a fresh dialog is
+  sometimes dropped, so each write is verified and retried once.
+  Verified end to end: `color.primary=&HFF3D5AFE`, `color.primary.dark=&HFF1E2A78`,
+  `color.accent=&HFFF59E0B` in the export, and the rebuilt APK's action bar is the new indigo.
+- `PrimaryColorDark` is reported as `unsupported` rather than failing the call: its dialog editor
+  accepts the picker but never applies, and this build derives the value from the theme.
+- The Theme dropdown uses captions, not stored values (`AppTheme.Light.DarkActionBar` is
+  "Device Default"), which the tool now maps.
 - **Screen switching now works.** `ai_screen { action: "switch" }` was documented as
   experimental because the toolbar selector never opened. Two independent bugs:
   - the relay's `click()` fires three click events (a pointer click, one on the face and one on
