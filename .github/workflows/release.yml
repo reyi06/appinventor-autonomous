@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Package and publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # A release is only cut from a green tree.
+      - name: MCP protocol smoke test
+        run: npm run selftest
+      - name: Access control (HTTP + WebSocket)
+        run: npm run security
+      - name: Layout IR (sizing, alignment, naming)
+        run: npm run layout
+      - name: Corpus (real .aia projects, offline)
+        run: npm run corpus
+
+      - name: Tarball name must match the tag
+        run: |
+          version=$(node -p "require('./package.json').version")
+          tag=${GITHUB_REF_NAME#v}
+          if [ "$version" != "$tag" ]; then
+            echo "package.json is $version but the tag is $tag" >&2
+            exit 1
+          fi
+
+      - name: Pack
+        run: npm pack
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            "./appinventor-autonomous-${GITHUB_REF_NAME#v}.tgz" \
+            --generate-notes \
+            --title "appinventor-autonomous ${GITHUB_REF_NAME#v}"
