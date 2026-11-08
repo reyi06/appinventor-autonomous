@@ -30,6 +30,36 @@
   menu did not appear, skips the components-tree filter (which also has a `▾` caret), and
   returns `previous` / `current` so a no-op is distinguishable from a switch.
 - A failed rename during component creation no longer leaves a half-created component behind.
+- **`logic_compare` is equality only.** Its Yail generator maps every operator except `NEQ` to
+  `yail-equal?`, so `OP=GT` compiles to `=` and `5 > 0` is silently false. Ordering comparisons
+  belong on `math_compare`. Found by running the app; nothing in the editor complains. See
+  `docs/blocks.md`.
+- **Colours in blocks take colour blocks.** A text block holding `&H16A34A` in `TextColor`
+  compiles, then crashes at runtime with *Bad arguments to TextColor* and exits the app.
+- **Horizontal alignment codes were swapped in the layout compiler**, so `mainAlign: "center"`
+  produced right alignment: App Inventor is `1 left, 2 right, 3 center` horizontally and
+  `1 top, 2 center, 3 bottom` vertically. They are separate maps now, with tests.
+- **`props.Width`/`props.Height` in a layout spec were ignored** in favour of the per-kind
+  default, so an explicit `72` became `Automatic` and nothing said so.
+- **uiautomator text containing quotes was unreadable.** Android escapes `"` inside `text="…"`
+  as `&quot;`, so `waitForText('Who wrote "Romeo and Juliet"?')` never matched. Attribute values
+  are decoded now.
+- **A client-side abort does not stop the relay.** An interrupted `ai_layout` apply kept writing
+  components in the background, and the next batch collided with it.
+
+### Added
+- **Colour, typeface, alignment and shape properties are settable.** The relay drives the
+  colour picker (Pickr: type the hex, Save) and the choice `DropDownButton` menus, so
+  `BackgroundColor`, `TextColor`, `Shape`, `AlignHorizontal` and `TextAlignment` all work
+  through `ai_component { action: "set" }`. Colour writes are verified by re-reading the
+  picker, because the property panel cannot display a custom colour (it repaints as
+  `Default`) — and the tool says `verified: false` rather than claiming a pass when it cannot
+  tell.
+- `npm run layout` (34 checks): sizing, alignment codes, colour encoding, naming, gap spacers,
+  `crossAlign: stretch`.
+- `docs/blocks.md`: the block and input-name table read from the App Inventor sources, plus the
+  runtime traps above.
+- `samples/quiz/`: QuizMaster, a three-screen quiz built end to end through the tools.
 
 ### Added
 - `ai_validate` sizing lint from MIT's Responsive Design guide:

@@ -147,6 +147,25 @@ export async function dumpUi(serial, tmpName = 'ui.xml') {
   return out;
 }
 
+/**
+ * Decode the entities uiautomator writes into attribute values.
+ *
+ * Android escapes a quote inside `text="…"` as &quot;, and a question like
+ *   Who wrote "Romeo and Juliet"?
+ * is otherwise compared as the raw escaped string and never matches the text a
+ * test author typed.
+ */
+export function decodeUiText(value) {
+  return String(value == null ? '' : value)
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&#10;/g, '\n')
+    .replace(/&#13;/g, '\r')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&');
+}
+
 /** Extract visible nodes (text, resource-id, class, bounds) from a UI dump. */
 export function parseUi(xml) {
   const nodes = [];
@@ -156,7 +175,7 @@ export function parseUi(xml) {
     const attrs = m[1];
     const get = (name) => {
       const a = attrs.match(new RegExp(`${name}="([^"]*)"`));
-      return a ? a[1] : null;
+      return a ? decodeUiText(a[1]) : null;
     };
     const bounds = get('bounds');
     const b = bounds && bounds.match(/\[(\d+),(\d+)\]\[(\d+),(\d+)\]/);

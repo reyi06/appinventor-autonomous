@@ -13,12 +13,18 @@ const DIRECTIONS = new Set(['vertical', 'horizontal', 'absolute']);
 const ALIGN = new Set(['start', 'center', 'end', 'stretch', 'space-between', 'spacebetween', 'spacebetween']);
 
 /**
- * Alignment codes.
- * AlignHorizontal: 1 left, 2 center, 3 right
- * AlignVertical:   1 top,  2 center, 3 bottom
- * Which one is the "main" axis depends on the container's direction.
+ * Alignment codes, per axis. The two axes do NOT share an order:
+ *
+ *   AlignHorizontal  1 left, 2 right, 3 center   (GRAVITY_LEFT/RIGHT/CENTER_HORIZONTAL)
+ *   AlignVertical    1 top,  2 center, 3 bottom  (GRAVITY_TOP/CENTER_VERTICAL/BOTTOM)
+ *
+ * Taking "center" to be 2 on both axes right-aligns every centred design, which
+ * is why these are separate maps.
  */
-const AXIS_CODE = { start: '1', left: '1', top: '1', center: '2', end: '3', right: '3', bottom: '3' };
+const AXIS_CODE = {
+  horizontal: { start: '1', left: '1', end: '2', right: '2', center: '3' },
+  vertical: { start: '1', top: '1', center: '2', end: '3', bottom: '3' }
+};
 
 /** App Inventor TextAlignment codes. */
 const TEXT_ALIGN = { left: '0', start: '0', center: '1', right: '2', end: '2' };
@@ -239,13 +245,19 @@ function buildProps(kind, type, spec, style, font, layout, notes, path) {
   if (font.italic) props.FontItalic = 'True';
   if (style.align && TEXT_ALIGN[style.align] != null) props.TextAlignment = TEXT_ALIGN[style.align];
 
-  if (style.radius && kind === 'button') {
-    props.Shape = 'rounded';
+  // `shape: "rounded"` and `radius: n` both mean the Button.Shape choice; the
+  // other shapes App Inventor offers are "default" and "oval".
+  if (kind === 'button' && (style.radius || style.shape === 'rounded' || style.shape === 'oval')) {
+    props.Shape = style.shape === 'oval' ? 'oval' : 'rounded';
   }
 
   // sizing
-  const width = normalizeSize(spec.width ?? style.width ?? layout.width);
-  const height = normalizeSize(spec.height ?? style.height ?? layout.height);
+  // An explicit props.Width/Height must win: it is the same field the .scm
+  // stores, so a caller that reads a component and hands it back (or a design
+  // adapter that already computed a length) would otherwise have its value
+  // silently replaced by the default for its kind.
+  const width = normalizeSize(spec.width ?? style.width ?? layout.width ?? props.Width);
+  const height = normalizeSize(spec.height ?? style.height ?? layout.height ?? props.Height);
 
   if (kind === 'text' || kind === 'input') {
     props.Width = width || 'Fill parent';
@@ -265,8 +277,8 @@ function buildProps(kind, type, spec, style, font, layout, notes, path) {
     //   vertical  -> AlignVertical is main, AlignHorizontal is cross
     //   horizontal-> AlignHorizontal is main, AlignVertical is cross
     const vertical = layout.dir !== 'horizontal';
-    const main = AXIS_CODE[String(layout.mainAlign || '').toLowerCase()];
-    const cross = AXIS_CODE[String(layout.crossAlign || '').toLowerCase()];
+    const main = AXIS_CODE[vertical ? 'vertical' : 'horizontal'][String(layout.mainAlign || '').toLowerCase()];
+    const cross = AXIS_CODE[vertical ? 'horizontal' : 'vertical'][String(layout.crossAlign || '').toLowerCase()];
 
     if (vertical) {
       if (main) props.AlignVertical = main;

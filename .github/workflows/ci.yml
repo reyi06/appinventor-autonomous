@@ -24,6 +24,8 @@ jobs:
         run: npm run selftest
       - name: Access control (HTTP + WebSocket)
         run: npm run security
+      - name: Layout IR (sizing, alignment, naming)
+        run: npm run layout
       - name: Corpus (real .aia projects, offline)
         run: npm run corpus
 

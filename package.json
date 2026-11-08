@@ -21,7 +21,8 @@
     "selftest": "node tests/mcp-smoke.mjs",
     "security": "node tests/security.mjs",
     "corpus": "node tests/corpus.mjs",
-    "test": "node tests/mcp-smoke.mjs && node tests/security.mjs && node tests/corpus.mjs"
+    "test": "node tests/mcp-smoke.mjs && node tests/security.mjs && node tests/layout.mjs && node tests/corpus.mjs",
+    "layout": "node tests/layout.mjs"
   },
   "dependencies": {
     "ws": "^8.18.0"

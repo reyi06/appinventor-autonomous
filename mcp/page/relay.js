@@ -15,7 +15,7 @@
   'use strict';
 
   var VERSION = '1.3.3';
-  var BUILD = '2026-11-08.10'; // implementation revision: changing this replaces a live instance
+  var BUILD = '2026-11-09.14'; // implementation revision: changing this replaces a live instance
   var WS_URL = window.__AI_RELAY_WS__ || 'ws://127.0.0.1:8766';
   var PREFIX = '[ai-relay]';
 
@@ -317,8 +317,37 @@
       });
   }
 
+  /** Poll the property row until it shows the expected value, or time out. */
+  function waitForRowValue(property, expected, timeoutMs) {
+    var started = Date.now();
+    function tick() {
+      var row = propertyRow(property);
+      var actual = row ? readRowValue(row) : null;
+      if (sameValue(actual, expected)) return Promise.resolve(actual);
+      if (Date.now() - started > (timeoutMs || 3000)) return Promise.resolve(actual);
+      return sleep(120).then(tick);
+    }
+    return tick();
+  }
+
   /** Current display value of a property row, for read-back verification. */
   function readRowValue(row) {
+    var colorEditor = row.querySelector('.ode-ColorChoicePropertyEditor');
+    if (colorEditor) {
+      // A custom colour cannot be shown by this widget: ColorChoicePropertyEditor
+      // only knows its swatches, so it falls back to "Default" after a repaint.
+      // Colour writes are verified by re-reading the picker instead (see
+      // setColorProperty); this value is only used for named swatches.
+      var face = colorEditor.querySelector('.html-face') || colorEditor;
+      return (face.textContent || '').replace(/\s+/g, ' ').trim();
+    }
+
+    var choiceEditor = row.querySelector('.ode-ChoicePropertyEditor');
+    if (choiceEditor) {
+      // "rounded : 1 ▾" -> "rounded"
+      var text = (choiceEditor.textContent || '').replace(/\s*\u25be\s*$/, '').trim();
+      return (text.split(':')[0] || '').trim();
+    }
     var checkbox = row.querySelector('input[type="checkbox"]');
     if (checkbox) return checkbox.checked;
     var select = row.querySelector('select');
@@ -335,6 +364,19 @@
     return null;
   }
 
+  /** Normalise any colour spelling to AARRGGBB, or null. */
+  function argbOf(value) {
+    var v = String(value == null ? '' : value).trim();
+    if (COLOR_BY_NAME[v.toLowerCase()]) v = COLOR_BY_NAME[v.toLowerCase()];
+    var m = v.match(/^&H([0-9A-Fa-f]{8})$/);
+    if (m) return m[1].toUpperCase();
+    m = v.match(/^#([0-9A-Fa-f]{6})$/);
+    if (m) return ('FF' + m[1]).toUpperCase();
+    m = v.match(/^#([0-9A-Fa-f]{8})$/);
+    if (m) return m[1].toUpperCase();
+    return null;
+  }
+
   function sameValue(actual, expected) {
     if (typeof actual === 'boolean') {
       return actual === (expected === true || expected === 'True' || expected === 'true' || expected === 1 || expected === '1');
@@ -342,6 +384,15 @@
     var a = String(actual == null ? '' : actual).trim().replace(/\.+$/, '');
     var b = String(expected == null ? '' : expected).trim().replace(/\.+$/, '');
     if (a === b) return true;
+    // Choice captions come back capitalised ("Center") while the value is
+    // written lowercase ("center").
+    if (a.toLowerCase() === b.toLowerCase()) return true;
+
+    // Colours are spelled differently by the picker (#3D5AFE), the row summary
+    // and the .scm (&HFF3D5AFE).
+    var ca = argbOf(a);
+    var cb = argbOf(b);
+    if (ca && cb && ca === cb) return true;
 
     // The length editor summarises values: "56 pixels", "50 %", "-1050 pixels"
     var px = a.match(/^(-?\d+)\s*pixels?$/i);
@@ -739,14 +790,199 @@
       });
   }
 
-  function setPropertyOnRow(row, value) {
-    // Dropdown-based editors (colour, typeface, alignment, shape) render a
-    // GWT DropDownButton that cannot be driven reliably from script.
-    if (row.querySelector('.ode-ColorChoicePropertyEditor, .ode-ChoicePropertyEditor')) {
-      throw new Error(
-        'This property uses a dropdown editor (colour/typeface/alignment) that this build does not expose ' +
-        'to programmatic clicks. Set it in the Designer UI, or leave it to the design import report.'
-      );
+  /** Named colours the Designer's swatches offer, and what the .scm stores. */
+  var COLOR_BY_NAME = {
+    none: '&H00000000', default: '&H00000000', black: '&HFF000000', blue: '&HFF0000FF',
+    cyan: '&HFF00FFFF', darkgray: '&HFF444444', gray: '&HFF888888', green: '&HFF00FF00',
+    lightgray: '&HFFCCCCCC', magenta: '&HFFFF00FF', orange: '&HFFFFC800', pink: '&HFFFFAFAF',
+    red: '&HFFFF0000', white: '&HFFFFFFFF', yellow: '&HFFFFFF00'
+  };
+
+  /** Captions for choice editors whose stored value is a code, not a word. */
+  var CHOICE_CAPTIONS = {
+    text: { '0': 'left', '1': 'center', '2': 'right' },
+    horizontal: { '1': 'left', '2': 'right', '3': 'center' },
+    vertical: { '1': 'top', '2': 'center', '3': 'bottom' }
+  };
+
+  /** `&HFF3D5AFE` / `#3D5AFE` / `Blue` -> `#3D5AFE` for the Pickr hex field. */
+  function toPickerHex(value) {
+    var v = String(value == null ? '' : value).trim();
+    if (COLOR_BY_NAME[v.toLowerCase()]) v = COLOR_BY_NAME[v.toLowerCase()];
+    var m = v.match(/^&H([0-9A-Fa-f]{8})$/);
+    if (m) {
+      var alpha = m[1].slice(0, 2).toUpperCase();
+      var rgb = m[1].slice(2).toUpperCase();
+      return alpha === 'FF' ? '#' + rgb : '#' + rgb + alpha;
+    }
+    m = v.match(/^#([0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$/);
+    if (m) return '#' + m[1].toUpperCase();
+    return null;
+  }
+
+  /**
+   * Press and release with only the events a click needs.
+   *
+   * clickOnce() also fires mouseover/mouseout so GWT's button styling settles,
+   * but Pickr (the colour picker) treats a pointer leaving the widget as "close
+   * me", so the hover events have to be left out here.
+   */
+  function clickPlain(el) {
+    var box = el.getBoundingClientRect();
+    var base = {
+      bubbles: true, cancelable: true, view: window,
+      clientX: box.left + box.width / 2, clientY: box.top + box.height / 2,
+      screenX: box.left + box.width / 2, screenY: box.top + box.height / 2,
+      button: 0, buttons: 1, detail: 1
+    };
+    var face = el.querySelector('.html-face') || el;
+    try { el.focus(); } catch (e) { /* not focusable */ }
+    face.dispatchEvent(new MouseEvent('mousedown', base));
+    var up = Object.assign({}, base, { buttons: 0 });
+    face.dispatchEvent(new MouseEvent('mouseup', up));
+    face.dispatchEvent(new MouseEvent('click', up));
+  }
+
+  /**
+   * The colour editor is a TextButton that opens Pickr (.pcr-app): a hex field
+   * plus Save. Typing the hex and pressing Save is the same path a human takes.
+   */
+  /**
+   * Pickr stays open until it is told otherwise, and a stray click leaves it
+   * covering the panel: the next open would then toggle it shut instead. Every
+   * colour write starts by closing whatever is there.
+   */
+  function openPickers() {
+    return [].slice.call(document.querySelectorAll('.pcr-app.visible'));
+  }
+
+  function closePickerIfOpen() {
+    var open = openPickers();
+    if (!open.length) return Promise.resolve(false);
+    open.forEach(function (app) {
+      var cancel = app.querySelector('.pcr-cancel');
+      if (cancel) cancel.click();
+    });
+    return sleep(180).then(function () {
+      if (!openPickers().length) return true;
+      var editor = document.querySelector('.ode-ColorChoicePropertyEditor');
+      if (editor) clickPlain(editor);
+      return sleep(180).then(function () { return !openPickers().length; });
+    });
+  }
+
+  /**
+   * Pickr appends its panel to the document, one panel per editor that has ever
+   * been opened. After the first colour change another panel exists, so
+   * document.querySelector('.pcr-app.visible') can hand back the wrong one and
+   * the keystrokes land on another row. Match by proximity instead.
+   */
+  function pickerFor(editor) {
+    var rect = editor.getBoundingClientRect();
+    var best = null;
+    var bestDistance = Infinity;
+    openPickers().forEach(function (app) {
+      var b = app.getBoundingClientRect();
+      var dx = Math.max(b.left - rect.right, rect.left - b.right, 0);
+      var dy = Math.max(b.top - rect.bottom, rect.top - b.bottom, 0);
+      var distance = dx + dy;
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = app;
+      }
+    });
+    return best;
+  }
+
+  function setColorProperty(editor, value) {
+    var hex = toPickerHex(value);
+    if (!hex) throw new Error('Not a colour: ' + value);
+    return closePickerIfOpen().then(function () {
+      clickPlain(editor);
+      return waitFor(function () { return pickerFor(editor); }, 4000).catch(function () {
+        throw new Error('Colour picker did not open (expected .pcr-app)');
+      });
+    }).then(function (app) {
+      // Pickr attaches its field handlers a tick after the panel appears; typing
+      // before that leaves Save committing the colour that was already there.
+      return sleep(400).then(function () { return app; });
+    }).then(function (app) {
+      var input = app.querySelector('.pcr-result');
+      var save = app.querySelector('.pcr-save');
+      if (!input || !save) throw new Error('Colour picker is missing its hex field or Save button');
+      input.focus();
+      input.value = hex;
+      // Pickr updates its internal colour from keyboard events, not from
+      // setting .value: without the key sequence Save commits the *previous*
+      // colour, which looks like a successful write that silently does nothing.
+      ['keydown', 'keypress', 'input', 'keyup', 'change', 'blur'].forEach(function (type) {
+        var ev;
+        try {
+          ev = type.indexOf('key') === 0
+            ? new KeyboardEvent(type, { bubbles: true, cancelable: true })
+            : new Event(type, { bubbles: true });
+        } catch (e) {
+          ev = new Event(type, { bubbles: true });
+        }
+        input.dispatchEvent(ev);
+      });
+      // Pickr debounces the field handler; clicking Save in the same tick
+      // commits the colour that was there *before* typing.
+      return sleep(600).then(function () {
+        save.click();
+        return sleep(220);
+      }).then(function () {
+        return { kind: 'colour', value: hex };
+      });
+    });
+  }
+
+  /**
+   * Alignment, typeface and shape use the same DropDownButton as the screen
+   * selector: one click opens the menu, one click picks the item.
+   */
+  function setChoiceProperty(editor, caption) {
+    clickOnce(editor);
+    return waitFor(function () {
+      var menu = document.querySelector('.ode-ContextMenu');
+      return menu && menu.querySelectorAll('.ode-ContextMenuItem').length ? menu : null;
+    }, 4000).catch(function () {
+      throw new Error('Choice menu did not open for "' + caption + '"');
+    }).then(function () {
+      var items = document.querySelectorAll('.ode-ContextMenu .ode-ContextMenuItem');
+      var wanted = String(caption).trim().toLowerCase();
+      for (var i = 0; i < items.length; i++) {
+        var full = (items[i].textContent || '').trim();
+        // Items are rendered as "caption : code" (e.g. "rounded : 1"), so accept
+        // either the caption or the code.
+        var parts = full.split(':');
+        var label = (parts[0] || '').trim().toLowerCase();
+        var code = (parts[1] || '').trim();
+        if (label === wanted || full.toLowerCase() === wanted || code === wanted) {
+          clickOnce(items[i]);
+          return sleep(220).then(function () { return { kind: 'choice', value: label }; });
+        }
+      }
+      throw new Error('Choice "' + caption + '" is not in the menu (' +
+        [].map.call(items, function (it) { return (it.textContent || '').trim(); }).join(', ') + ')');
+    });
+  }
+
+  function setPropertyOnRow(row, value, propertyName) {
+    var colorEditor = row.querySelector('.ode-ColorChoicePropertyEditor');
+    if (colorEditor) return setColorProperty(colorEditor, value);
+
+    var choiceEditor = row.querySelector('.ode-ChoicePropertyEditor');
+    if (choiceEditor) {
+      var caption = String(value);
+      if (/^[0-9]$/.test(caption)) {
+        var name = String(propertyName || '');
+        var axis = /^TextAlignment$/i.test(name) ? 'text'
+          : /^AlignHorizontal$/i.test(name) ? 'horizontal'
+            : /^AlignVertical$/i.test(name) ? 'vertical' : null;
+        if (axis && CHOICE_CAPTIONS[axis][caption]) caption = CHOICE_CAPTIONS[axis][caption];
+      }
+      return setChoiceProperty(choiceEditor, caption);
     }
 
     var input = row.querySelector('input.ode-PropertyEditor, input.ode-TextPropertyEditor');
@@ -1289,15 +1525,31 @@
         var row = propertyRow(p.property);
         if (!row) throw new Error('Property row not found: ' + p.property +
           ' (properties are grouped; select the component in the Designer first)');
-        return Promise.resolve(setPropertyOnRow(row, p.value)).then(function (result) {
-          return sleep(250).then(function () {
-            var row2 = propertyRow(p.property);
-            var actual = row2 ? readRowValue(row2) : null;
-            if (!sameValue(actual, p.value)) {
-              throw new Error('Write did not stick: ' + p.component + '.' + p.property +
-                ' is "' + actual + '", expected "' + p.value + '"');
+        return Promise.resolve(setPropertyOnRow(row, p.value, p.property)).then(function (result) {
+          // A choice menu stores a code ("1") but the row reads back its
+          // caption ("center"), so compare against what was actually picked.
+          var expected = result && result.kind === 'choice' ? result.value : p.value;
+          var isColour = result && result.kind === 'colour';
+          return waitForRowValue(p.property, expected, isColour ? 1500 : 3000).then(function (actual) {
+            if (sameValue(actual, expected)) {
+              return { component: p.component, property: p.property, written: p.value, control: result, verified: true };
             }
-            return { component: p.component, property: p.property, written: p.value, control: result, verified: true };
+            if (isColour) {
+              // ColorChoicePropertyEditor only knows its swatches, so a custom
+              // colour repaints as "Default" even when the model holds it. Say
+              // so instead of claiming a pass (or a failure).
+              return {
+                component: p.component,
+                property: p.property,
+                written: p.value,
+                control: result,
+                verified: false,
+                verifiedBy: 'unconfirmed',
+                note: 'Written through the colour picker. This panel cannot display a custom colour (it shows "Default"), so confirm with ai_component { action: "tree" }, which reads the saved .scm.'
+              };
+            }
+            throw new Error('Write did not stick: ' + p.component + '.' + p.property +
+              ' is "' + actual + '", expected "' + expected + '"');
           });
         });
       });
