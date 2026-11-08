@@ -185,6 +185,21 @@ const screen1 = [
       txt('Best: '),
       callMethod('DataStore1', 'TinyDB', 'GetValue', [txt('best'), num(0)])
     ))
+  )),
+
+  // Bottom tab bar. Home just re-reads the best score (we are already here);
+  // Play and Scores jump straight to their screens with the stored values.
+  event('IconHome', 'Image', 'Click', seq(
+    setProp('BestLabel', 'Label', 'Text', joinN(
+      txt('Best: '),
+      callMethod('DataStore1', 'TinyDB', 'GetValue', [txt('best'), num(0)])
+    ))
+  )),
+  event('IconPlay', 'Image', 'Click', seq(
+    openWith('QuizScreen', callMethod('DataStore1', 'TinyDB', 'GetValue', [txt('playerName'), txt('')]))
+  )),
+  event('IconScore', 'Image', 'Click', seq(
+    openWith('ResultScreen', callMethod('DataStore1', 'TinyDB', 'GetValue', [txt('lastScore'), num(0)]))
   ))
 ];
 

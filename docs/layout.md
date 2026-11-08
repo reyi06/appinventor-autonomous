@@ -158,3 +158,40 @@ reminder that App Inventor has no border, shadow or radius outside `Button.Shape
 
 `docs/designer.md` covers sizing and colour encoding; this file covers the
 arrangements themselves.
+
+## What a real project does
+
+Read from a production App Inventor app (6 screens, 1.6 MB, fluent layout): its idioms are worth
+copying because they solve the exact problems this file describes.
+
+**Chrome is an image on an outer arrangement, content lives in an inner transparent one.**
+
+```
+HorizontalArrangement FldName     Height 52, Image = field.png     <- the pill
+└ HorizontalArrangement Inner     Width 250 (or a %, transparent)  <- the padded box
+  └ TextBox NameBox              BackgroundColor = &H00FFFFFF      <- invisible field
+```
+
+`&H00FFFFFF` (alpha 00) is the workhorse: text boxes, buttons and arrangements all go transparent so
+the art beneath shows through. Their card rows do the same at 85 px with `Image=Rectangle1.png`.
+
+**The inset must be a length, not a percentage.** Percentages resolve against the screen, so `92%`
+inside a 317 dp field is 331 dp and overflows it — which clips the first character and lets a
+transparent `Spinner` paint its black rectangle past the pill. A fixed dp width (or `Fill parent`
+inside something already padded) is what keeps the inset honest.
+
+**A navbar is `Image` + `Label`, not buttons.** Each tab is a `VerticalArrangement` in a horizontal
+row, holding an icon (40×40) and an uppercase 10–12 px label. `Image` has a **`Click`** event, so the
+icon is the hit target — no `Button.Image` scaling problem, and the label can wrap with a `\n`.
+
+**Draw your own header.** Every form is `TitleVisible=False`, with a `HorizontalArrangement` at the
+top of the body holding a back button (70 px, transparent, `"<"` at 35 px) and a 24 px title.
+
+**Space-between without spacers.** An empty `Width=Fill parent` arrangement between two items absorbs
+the slack inside a *horizontal* row — fill-parent splits leftover space among a row's children,
+whereas a vertical column only gives it to the last child.
+
+**Ship tokens, not decisions.** A four-colour palette (cream/green/sage/clay), font sizes 9/12/13/
+15/16/24/36, bold for emphasis, and two custom `.ttf` files in `assets/`. Nothing is ad-hoc.
+
+The QuizMaster sample applies the navbar and field idioms; its card is still a flat colour.
