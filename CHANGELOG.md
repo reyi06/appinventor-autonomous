@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.1.1 - 2026-11-08
+
+Documentation and presentation only; no server behaviour changed.
+
+- The README now opens by naming the repository for what it is — an MCP server — instead of
+  showing an app screenshot. CI, release, licence and Node badges sit under the title.
+- `docs/architecture.md` gained a diagram GitHub renders (mermaid) and a module table.
+- A Licence section, with the corpus attribution spelled out: the repository is MIT, the MIT
+  fixtures in `samples/corpus/` remain Apache-2.0.
+
 ## 2.1.0 - 2026-11-08
 
 Designer breadth: colour, choice and project properties are now automatable, screen

@@ -2,6 +2,11 @@
 
 **An MCP server for MIT App Inventor.**
 
+[![CI](https://github.com/reyi06/appinventor-autonomous/actions/workflows/ci.yml/badge.svg)](https://github.com/reyi06/appinventor-autonomous/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/reyi06/appinventor-autonomous?display_name=tag)](https://github.com/reyi06/appinventor-autonomous/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Node](https://img.shields.io/badge/node-%E2%89%A520-brightgreen.svg)](package.json)
+
 [MCP](docs/clients.md) is the Model Context Protocol — the tool interface Claude Code, Codex,
 Cursor, Windsurf, VS Code and OpenCode all speak. This server exposes a live App Inventor
 session through it: **13 tools** that create projects, place components, set properties, write
@@ -279,3 +284,9 @@ samples/                pizza/ — the block generator and its output (no binari
 | [docs/release.md](docs/release.md) | publishing checklist |
 | [SECURITY.md](SECURITY.md) | trust boundaries and controls |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | how to test against a live editor |
+
+## License
+
+MIT — see [LICENSE](LICENSE). The App Inventor fixtures in `samples/corpus/` remain
+Apache-2.0, © Massachusetts Institute of Technology; see
+[samples/corpus/README.md](samples/corpus/README.md).

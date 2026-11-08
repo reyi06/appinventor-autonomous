@@ -1,5 +1,19 @@
 # Architecture
 
+```mermaid
+flowchart TD
+    A[agent / MCP client] -->|stdio JSON-RPC| B[mcp/server.js]
+    B --> C[WebSocket hub<br/>:8766]
+    B -.-> D[HTTP :8766<br/>/health · /rpc · /relay-call]
+    C -->|ws://127.0.0.1| E[mcp/page/relay.js<br/>runs in the App Inventor tab]
+    E -->|GWT designer · Blockly · /ode endpoints| F[(App Inventor editor<br/>ai2a.appinventor.mit.edu)]
+    B --> G[mcp/lib: zip · scm · bky · adb · security]
+    B --> H[mcp/layout: IR · planner · applier]
+    E -.->|assets, builds, exports| F
+```
+
+The same picture for a terminal:
+
 ```
  agent / MCP client
         │  stdio JSON-RPC (newline-delimited)
@@ -22,6 +36,20 @@
    ai2a.appinventor.mit.edu
    (designer DOM, Blockly workspace, /ode/upload, /ode/download, /b/<nonce>)
 ```
+
+## Modules
+
+| Module | Responsibility |
+| --- | --- |
+| `mcp/server.js` | MCP transport, tool registry, HTTP/WS surface, startup order |
+| `mcp/tools.js` | the 13 tools and their actions; all verification lives here |
+| `mcp/page/relay.js` | everything that must run *inside* the editor page |
+| `mcp/lib/hub.js` | relay clients, call routing, version pin, port-busy fallback |
+| `mcp/lib/security.js` | Host/Origin allowlists, bearer token, JSON-only POSTs |
+| `mcp/lib/scm.js` · `bky.js` | project file parsing, shared by tools and tests |
+| `mcp/lib/adb.js` | build install, launch, scripted steps, crash/log reads |
+| `mcp/layout/` | IR, planner and applier for design sources |
+| `mcp/prompts.js` · `resources.js` | the optional MCP prompts and resources |
 
 ## Why a page relay
 
